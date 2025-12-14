@@ -52,7 +52,7 @@ Provides convenient aliases for common commands:
 
 - `ls` - Colored directory listing
 - `ll` - Long format listing with hidden files
-- `finder` - Opens macOS Finder
+- `finder` - Opens macOS Finder, can be used with a directory as parameter: open the specified folder in the finder 
 
 ### git.zsh
 
