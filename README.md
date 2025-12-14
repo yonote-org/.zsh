@@ -4,7 +4,7 @@ A collection of modular zsh configuration addons that enhance your shell experie
 
 ## Installation
 
-To install these configurations, simply add the following line to your `~/.zshrc` file:
+To install these configurations, clone the repo in your home directory (~) and simply add the following line to your `~/.zshrc` file:
 
 ```bash
 source ~/.zsh/configs.zsh
