@@ -174,6 +174,46 @@ bi node      # Show info about Node.js
 bin git      # Install Git
 ```
 
+**Autoupdate Cask Management:**
+
+Some Homebrew casks have auto-update enabled, which means they update themselves automatically. These casks are not included in `brew update` and `brew upgrade` by default. The autoupdate management functions allow you to track and update these casks manually. These functions are particularly useful when you have installed casks using auto-update that you don't use in your day-to-day routine but that are important to you to stay up to date.
+
+**Aliases:**
+- `bauc` - Alias of `brew_autoupdate_check`. Scans all installed casks and identifies those with `auto_updates == true` that have newer versions available. Shows the cask name and version transition (e.g., `app-name (1.0.0 -> 1.1.0)`).
+
+- `baua` - Alias of `brew_autoupdate_add`. Adds one or more casks to the autoupdate tracking list. The list is stored in `~/.homebrew/autoupdate-casks.config`. Duplicates are automatically prevented. Usage: `baua <cask1> [cask2] ...`
+
+- `baur` - Alias of `brew_autoupdate_remove`. Removes one or more casks from the autoupdate tracking list. Usage: `baur <cask1> [cask2] ...`
+
+- `baul` - Alias of `brew_autoupdate_list`. Displays all casks currently in the autoupdate tracking list.
+
+- `bauu` - Alias of `brew_autoupdate_update`. Updates all casks in the autoupdate tracking list. Updates Homebrew to check for latest versions, compares installed versions vs latest versions (not using `brew outdated --cask` which doesn't work for autoupdate casks), only updates casks that have newer versions available, uses the `--greedy` flag to bypass auto-update restrictions, and provides a detailed summary of updated, skipped, and failed casks.
+
+- `bug` - Alias of `brew_greedy_cask_upgrade`. Upgrades a specific cask using the `--greedy` flag, which allows upgrading casks even if they have auto-update enabled. Usage: `bug <cask>`
+
+**Usage Examples:**
+```bash
+# Check which auto-update casks have newer versions
+bauc
+
+# Add casks to the tracking list
+baua google-chrome firefox
+
+# List tracked casks
+baul
+
+# Update all tracked casks
+bauu
+
+# Remove a cask from tracking
+baur google-chrome
+
+# Upgrade a specific cask with --greedy flag
+bug firefox
+```
+
+**Note:** The autoupdate list is stored in `~/.homebrew/autoupdate-casks.config` and is automatically sorted alphabetically.
+
 ## Customization
 
 Each addon can be customized by editing the respective file in `~/.zsh/`. The modular structure allows you to:
