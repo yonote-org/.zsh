@@ -25,16 +25,7 @@ brewuy() {
 }
 
 brew_autoupdate_check() {
-  local installed_casks
-  installed_casks=$(brew ls --cask 2>/dev/null)
-  
-  # Check if any casks are installed
-  if [[ -z "$installed_casks" ]]; then
-    printf "\033[0;33m==>\033[0m No casks are currently installed\n"
-    return 0
-  fi
-  
-  brew info --cask --json=v2 $installed_casks \
+  brew info --cask --json=v2 $(brew ls --cask) \
     | jq -r '
       .casks[]
       | select(.auto_updates == true)
@@ -178,9 +169,23 @@ brew_autoupdate_update() {
   printf "\033[0;34m==>\033[0m $(tput bold)Checking %d cask(s) for updates:$(tput sgr0)\n" "${#casks[@]}"
   printf "  %s\n\n" "${casks[*]}"
   
-  # Get list of outdated casks
+  # Get list of outdated casks by comparing installed vs latest versions
   local outdated_casks
-  outdated_casks=$(brew outdated --cask 2>/dev/null)
+  outdated_casks=$(brew info --cask --json=v2 "${casks[@]}" 2>/dev/null \
+    | jq -r '
+      .casks[]
+      | (
+          if (.installed | type) == "array" and (.installed | length) > 0 then
+            .installed[0].version
+          elif (.installed | type) == "string" then
+            .installed
+          else
+            empty
+          end
+        ) as $inst
+      | select($inst != null and $inst != .version)
+      | .token
+    ' 2>/dev/null)
   
   local updated=0
   local failed=0
