@@ -25,10 +25,36 @@ brewuy() {
 }
 
 brew_autoupdate_check() {
-  brew info --cask --json=v2 $(brew ls --cask) \
+  # Use the real application version from the installed app bundle (via mdls)
+  # instead of only relying on the Homebrew "installed" version metadata.
+  # This is important for auto-updating casks where the app may have updated
+  # itself independently of Homebrew.
+  printf "%s\n" "Checking for autoupdate casks..."
+
+  # Ensure local/typed variables don't spam output when xtrace is enabled.
+  # In zsh, TYPESET_SILENT suppresses the extra trace output for typeset/local.
+  local _bauc_typeset_silent_was_on=0
+  if setopt 2>/dev/null | grep -qx 'typeset_silent'; then
+    _bauc_typeset_silent_was_on=1
+  else
+    setopt TYPESET_SILENT
+  fi
+
+  local caskroom
+  caskroom="$(brew --prefix)/Caskroom"
+
+  # Arrays to collect results for grouped output
+  local -a tracked_outdated=()
+  local -a untracked_outdated=()
+  local -a up_to_date=()
+
+  # Build a list of all auto-update casks with their installed/latest/app info.
+  brew info --cask --json=v2 $(brew ls --cask) 2>/dev/null \
     | jq -r '
       .casks[]
       | select(.auto_updates == true)
+      | .token as $token
+      | .version as $latest
       | (
           if (.installed | type) == "array" and (.installed | length) > 0 then
             .installed[0].version
@@ -38,9 +64,96 @@ brew_autoupdate_check() {
             empty
           end
         ) as $inst
-      | select($inst != .version)
-      | "\(.token) (\($inst) -> \(.version))"
-    '
+      | .artifacts[]?
+      | select(has("app"))
+      | .app[0] as $app
+      | "\($token)\t\($inst)\t\($latest)\t\($app)"
+    ' 2>/dev/null \
+    | while IFS=$'\t' read -r token inst latest app_name; do
+        # Skip incomplete lines
+        [[ -z "$token" || -z "$inst" || -z "$latest" || -z "$app_name" ]] && continue
+
+        local app_path real_version
+        app_path="$caskroom/$token/$inst/$app_name"
+
+        if [[ -e "$app_path" ]]; then
+          real_version=$(mdls -name kMDItemVersion -raw "$app_path" 2>/dev/null | tr -d '\r')
+        else
+          real_version=""
+        fi
+
+        # If we can't determine the real version, skip this cask for now.
+        [[ -z "$real_version" ]] && continue
+
+        # Normalize versions by stripping any ",build" suffix so that
+        # "0.3.35,1" and "0.3.35" can be compared consistently.
+        local clean_inst clean_latest clean_real
+        clean_inst="${inst%%,*}"
+        clean_latest="${latest%%,*}"
+        clean_real="${real_version%%,*}"
+
+        # If real version equals latest, this cask is up-to-date.
+        if [[ "$clean_real" == "$clean_latest" ]]; then
+          up_to_date+=("$token|$clean_inst|$clean_real|$clean_latest")
+          continue
+        fi
+
+        # Otherwise, the real version differs from the latest: categorize as tracked/untracked.
+        if [[ -f "$BREW_AUTOUPDATE_FILE" ]] && grep -Fxq "$token" "$BREW_AUTOUPDATE_FILE" 2>/dev/null; then
+          tracked_outdated+=("$token|$clean_inst|$clean_real|$clean_latest")
+        else
+          untracked_outdated+=("$token|$clean_inst|$clean_real|$clean_latest")
+        fi
+      done
+
+  echo ""
+
+  # 1) Tracked casks whose real version differs from latest
+  if (( ${#tracked_outdated[@]} > 0 )); then
+    printf "\033[0;34m==>\033[0m $(tput bold)Tracked autoupdate casks needing updates (real vs latest):$(tput sgr0)\n"
+    for entry in "${tracked_outdated[@]}"; do
+      local token clean_inst clean_real clean_latest
+      IFS='|' read -r token clean_inst clean_real clean_latest <<< "$entry"
+      printf "  \033[0;31m- %s (real: %s -> latest: %s)\033[0m\n" "$token" "$clean_real" "$clean_latest"
+    done
+    echo ""
+  fi
+
+  # 2) Auto-update casks not in the tracked list whose real version differs from latest
+  if (( ${#untracked_outdated[@]} > 0 )); then
+    printf "\033[0;34m==>\033[0m $(tput bold)Untracked autoupdate casks needing updates (real vs latest):$(tput sgr0)\n"
+    for entry in "${untracked_outdated[@]}"; do
+      local token clean_inst clean_real clean_latest
+      IFS='|' read -r token clean_inst clean_real clean_latest <<< "$entry"
+      printf "  \033[0;31m- %s (real: %s -> latest: %s)\033[0m\n" "$token" "$clean_real" "$clean_latest"
+    done
+    echo ""
+  fi
+
+  # 3) Auto-update casks that are up-to-date (real == latest)
+  if (( ${#up_to_date[@]} > 0 )); then
+    printf "\033[0;34m==>\033[0m $(tput bold)Autoupdate casks that are up-to-date (real == latest):$(tput sgr0)\n"
+    for entry in "${up_to_date[@]}"; do
+      local token clean_inst clean_real clean_latest
+      IFS='|' read -r token clean_inst clean_real clean_latest <<< "$entry"
+
+      if [[ "$clean_inst" == "$clean_real" ]]; then
+        # Installed, real, and latest all match (after normalization)
+        printf "  \033[0;32m- %s (installed: %s, real: %s, latest: %s)\033[0m\n" \
+          "$token" "$clean_inst" "$clean_real" "$clean_latest"
+      else
+        # Installed version differs from real/latest – highlight differently
+        printf "  \033[0;33m- %s (installed: %s, real: %s, latest: %s)\033[0m\n" \
+          "$token" "$clean_inst" "$clean_real" "$clean_latest"
+      fi
+    done
+    echo ""
+  fi
+
+  # Restore TYPESET_SILENT state if we changed it
+  if [[ $_bauc_typeset_silent_was_on -eq 0 ]]; then
+    unsetopt TYPESET_SILENT
+  fi
 }
 
 brew_greedy_cask_upgrade() {
@@ -151,6 +264,18 @@ brew_autoupdate_update() {
     printf "\033[0;33m==>\033[0m No casks in autoupdate list\n"
     return 0
   fi
+
+  # Ensure version comparison helper is available (zsh builtin).
+  autoload -Uz is-at-least 2>/dev/null || true
+
+  # Ensure local/typed variables don't spam output when xtrace is enabled.
+  # In zsh, TYPESET_SILENT suppresses the extra trace output for typeset/local.
+  local _bauu_typeset_silent_was_on=0
+  if setopt 2>/dev/null | grep -qx 'typeset_silent'; then
+    _bauu_typeset_silent_was_on=1
+  else
+    setopt TYPESET_SILENT
+  fi
   
   local casks=()
   while IFS= read -r cask; do
@@ -169,11 +294,18 @@ brew_autoupdate_update() {
   printf "\033[0;34m==>\033[0m $(tput bold)Checking %d cask(s) for updates:$(tput sgr0)\n" "${#casks[@]}"
   printf "  %s\n\n" "${casks[*]}"
   
-  # Get list of outdated casks by comparing installed vs latest versions
-  local outdated_casks
-  outdated_casks=$(brew info --cask --json=v2 "${casks[@]}" 2>/dev/null \
+  # Get metadata for casks whose Homebrew-installed version differs from the latest.
+  # We will then check the *real* app version (via mdls) only for these candidates.
+  local caskroom
+  caskroom="$(brew --prefix)/Caskroom"
+  
+  local outdated_info
+  outdated_info=$(brew info --cask --json=v2 "${casks[@]}" 2>/dev/null \
     | jq -r '
       .casks[]
+      | select(.auto_updates == true)
+      | .token as $token
+      | .version as $latest
       | (
           if (.installed | type) == "array" and (.installed | length) > 0 then
             .installed[0].version
@@ -184,7 +316,10 @@ brew_autoupdate_update() {
           end
         ) as $inst
       | select($inst != null and $inst != .version)
-      | .token
+      | .artifacts[]?
+      | select(has("app"))
+      | .app[0] as $app
+      | "\($token)\t\($inst)\t\($latest)\t\($app)"
     ' 2>/dev/null)
   
   local updated=0
@@ -195,21 +330,96 @@ brew_autoupdate_update() {
   local total=${#casks[@]}
   
   for cask in "${casks[@]}"; do
-    # Check if cask is outdated (use -Fx for whole-line literal matching)
-    if echo "$outdated_casks" | grep -Fxq "$cask"; then
-      printf "\033[0;34m==>\033[0m Updating %s...\n" "$cask"
-      if brew_greedy_cask_upgrade "$cask"; then
-        printf "\033[0;32m==>\033[0m Successfully updated %s\n" "$cask"
-        updated_casks+=("$cask")
-        ((updated++))
-      else
-        printf "\033[0;31m==>\033[0m Failed to update %s\n" "$cask"
-        ((failed++))
+    # Find metadata for this cask among those with installed != latest.
+    local info_line token inst latest app_name
+
+    # Use a single local assignment so TYPESET_SILENT can suppress xtrace noise.
+    local info_line=$(printf '%s\n' "$outdated_info" | awk -F '\t' -v c="$cask" '$1 == c { print; exit }')
+
+    if [[ -z "$info_line" ]]; then
+      # Homebrew installed version already matches latest; no need to check real app version.
+      # Fetch versions once for summary display (no mdls here).
+      local meta_inst meta_latest
+      meta_inst="$(brew info --cask --json=v2 "$cask" 2>/dev/null \
+        | jq -r '
+          .casks[0] as $c
+          | (
+              if ($c.installed | type) == "array" and ($c.installed | length) > 0 then
+                $c.installed[0].version
+              elif ($c.installed | type) == "string" then
+                $c.installed
+              else
+                empty
+              end
+            )'
+      )"
+      meta_latest="$(brew info --cask --json=v2 "$cask" 2>/dev/null \
+        | jq -r '.casks[0].version'
+      )"
+      local clean_meta_inst clean_meta_latest
+      clean_meta_inst="${meta_inst%%,*}"
+      clean_meta_latest="${meta_latest%%,*}"
+
+      printf "\033[0;36m==>\033[0m %s is already up-to-date (brew metadata %s)\n" "$cask" "$clean_meta_latest"
+      skipped_casks+=("$cask (installed: $clean_meta_inst, latest: $clean_meta_latest)")
+      ((skipped++))
+      continue
+    fi
+
+    IFS=$'\t' read -r token inst latest app_name <<< "$info_line"
+
+    # Normalize versions by stripping any ",build" suffix so that
+    # "0.3.35,1" and "0.3.35" can be compared consistently.
+    local clean_inst clean_latest
+    clean_inst="${inst%%,*}"
+    clean_latest="${latest%%,*}"
+
+    # Determine the real app version from the installed app bundle.
+    local app_path real_version clean_real
+    app_path="$caskroom/$token/$inst/$app_name"
+
+    if [[ -e "$app_path" ]]; then
+      real_version=$(mdls -name kMDItemVersion -raw "$app_path" 2>/dev/null | tr -d '\r')
+      clean_real="${real_version%%,*}"
+    else
+      real_version=""
+      clean_real=""
+    fi
+
+    # Decide whether to update:
+    # - Prefer the real app version: only update when the real version is LOWER than the latest.
+    # - If we can't read the real version, fall back to Homebrew metadata (clean_inst vs clean_latest).
+    if [[ -n "$clean_real" ]]; then
+      # If real version is equal to or newer than latest, skip.
+      if is-at-least "$clean_real" "$clean_latest"; then
+        printf "\033[0;36m==>\033[0m %s is already up-to-date (real app version %s), skipping\n" "$cask" "$real_version"
+        skipped_casks+=("$cask (installed: $clean_inst, real app: $real_version, latest: $clean_latest)")
+        ((skipped++))
+        continue
       fi
     else
-      printf "\033[0;36m==>\033[0m %s is already up-to-date, skipping\n" "$cask"
-      skipped_casks+=("$cask")
-      ((skipped++))
+      if [[ "$clean_inst" == "$clean_latest" ]]; then
+        printf "\033[0;36m==>\033[0m %s is already up-to-date, skipping\n" "$cask"
+        skipped_casks+=("$cask (installed: $clean_inst, latest: $clean_latest)")
+        ((skipped++))
+        continue
+      fi
+    fi
+
+    # At this point, real app version (if known) differs from latest, so update.
+    printf "\033[0;34m==>\033[0m Updating %s...\n" "$cask"
+    if brew_greedy_cask_upgrade "$cask"; then
+      if [[ -n "$clean_real" ]]; then
+        printf "\033[0;32m==>\033[0m Successfully updated %s (%s -> %s)\n" "$cask" "$clean_real" "$clean_latest"
+        updated_casks+=("$cask ($clean_real -> $clean_latest)")
+      else
+        printf "\033[0;32m==>\033[0m Successfully updated %s (%s -> %s)\n" "$cask" "$clean_inst" "$clean_latest"
+        updated_casks+=("$cask ($clean_inst -> $clean_latest)")
+      fi
+      ((updated++))
+    else
+      printf "\033[0;31m==>\033[0m Failed to update %s\n" "$cask"
+      ((failed++))
     fi
   done
   
@@ -229,5 +439,10 @@ brew_autoupdate_update() {
   fi
   [[ $failed -gt 0 ]] && printf "  \033[0;31mFailed: %d\033[0m\n" "$failed"
   echo ""
+
+  # Restore TYPESET_SILENT state if we changed it
+  if [[ $_bauu_typeset_silent_was_on -eq 0 ]]; then
+    unsetopt TYPESET_SILENT
+  fi
 }
 
