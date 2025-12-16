@@ -34,7 +34,8 @@ This project consists of a main configuration file (`configs.zsh`) that sources 
 - **members.zsh** - macOS group membership utility
 - **claude-run.zsh** - Claude Code setup with AWS Bedrock integration
 - **uless.zsh** - Color-preserving less integration
-- **brew-enhancements.zsh** - Homebrew aliases and upgrade utilities
+- **brew-enhancements.zsh** - Homebrew aliases and core upgrade utilities
+- **brew-autoupdate.zsh** - Homebrew cask autoupdate management (real-version aware)
 
 ## Addon Details
 
@@ -174,12 +175,16 @@ bi node      # Show info about Node.js
 bin git      # Install Git
 ```
 
+### brew-autoupdate.zsh
+
+Homebrew cask autoupdate management (for casks with `auto_updates true` that are not handled by `brew update` / `brew upgrade`):
+
 **Autoupdate Cask Management:**
 
 Some Homebrew casks have auto-update enabled, which means they update themselves automatically. These casks are not included in `brew update` and `brew upgrade` by default. The autoupdate management functions allow you to track and update these casks manually. These functions are particularly useful when you have installed casks using auto-update that you don't use in your day-to-day routine but that are important to you to stay up to date.
 
 **Aliases:**
-- `bauc` - Alias of `brew_autoupdate_check`. Scans all installed casks and identifies those with `auto_updates == true` that have newer versions available. Shows the cask name and version transition (e.g., `app-name (1.0.0 -> 1.1.0)`).
+- `bauc` - Alias of `brew_autoupdate_check`. Scans all installed casks with `auto_updates == true`, compares the **real app version** (from `mdls`) to the latest cask version, and groups casks into tracked/untracked and up-to-date vs outdated, showing real vs latest versions.
 
 - `baua` - Alias of `brew_autoupdate_add`. Adds one or more casks to the autoupdate tracking list. The list is stored in `~/.homebrew/autoupdate-casks.config`. Duplicates are automatically prevented. Usage: `baua <cask1> [cask2] ...`
 
@@ -187,13 +192,19 @@ Some Homebrew casks have auto-update enabled, which means they update themselves
 
 - `baul` - Alias of `brew_autoupdate_list`. Displays all casks currently in the autoupdate tracking list.
 
-- `bauu` - Alias of `brew_autoupdate_update`. Updates all casks in the autoupdate tracking list. Updates Homebrew to check for latest versions, compares installed versions vs latest versions (not using `brew outdated --cask` which doesn't work for autoupdate casks), only updates casks that have newer versions available, uses the `--greedy` flag to bypass auto-update restrictions, and provides a detailed summary of updated, skipped, and failed casks.
+- `bauu` - Alias of `brew_autoupdate_update`. Updates all tracked casks with `auto_updates == true` whose **real app version is lower than the latest**. It:
+  - Updates Homebrew to check for latest versions
+  - Uses real app versions from `mdls` when possible (with comma/build number normalization)
+  - Skips casks where real version is equal to or newer than latest
+  - Falls back to Homebrew-installed version when real version cannot be read
+  - Uses the `--greedy` flag to bypass auto-update restrictions
+  - Provides a detailed summary including `(from -> to)` versions for updated casks and real/installed/latest versions for skipped ones
 
 - `bug` - Alias of `brew_greedy_cask_upgrade`. Upgrades a specific cask using the `--greedy` flag, which allows upgrading casks even if they have auto-update enabled. Usage: `bug <cask>`
 
 **Usage Examples:**
 ```bash
-# Check which auto-update casks have newer versions
+# Check which auto-update casks have newer versions (real vs latest, grouped)
 bauc
 
 # Add casks to the tracking list
@@ -202,7 +213,7 @@ baua google-chrome firefox
 # List tracked casks
 baul
 
-# Update all tracked casks
+# Update all tracked casks whose real version is behind latest
 bauu
 
 # Remove a cask from tracking

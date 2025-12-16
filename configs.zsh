@@ -25,3 +25,6 @@ source ~/.zsh/uless.zsh
 # Brew enhancements (aliases and functions)
 source ~/.zsh/brew-enhancements.zsh
 
+# Homebrew autoupdate cask management
+source ~/.zsh/brew-autoupdate.zsh
+
