@@ -107,20 +107,49 @@ brew_autoupdate_check() {
   # 3) Auto-update casks that are up-to-date (real == latest)
   if (( ${#up_to_date[@]} > 0 )); then
     printf "\033[0;34m==>\033[0m $(tput bold)Autoupdate casks that are up-to-date (real == latest):$(tput sgr0)\n"
+    
+    # Separate into warnings and checkmarks, then sort each by cask name
+    local -a warnings=()
+    local -a checkmarks=()
+    
     for entry in "${up_to_date[@]}"; do
       local token clean_inst clean_real clean_latest
       IFS='|' read -r token clean_inst clean_real clean_latest <<< "$entry"
-
+      
       if [[ "$clean_inst" == "$clean_real" ]]; then
-        # Installed, real, and latest all match (after normalization)
-        printf "  \033[0;32m- %s (installed: %s, real: %s, latest: %s)\033[0m\n" \
-          "$token" "$clean_inst" "$clean_real" "$clean_latest"
+        checkmarks+=("$entry")
       else
-        # Installed version differs from real/latest – highlight differently
-        printf "  \033[0;33m- %s (installed: %s, real: %s, latest: %s)\033[0m\n" \
-          "$token" "$clean_inst" "$clean_real" "$clean_latest"
+        warnings+=("$entry")
       fi
     done
+    
+    # Sort each array by token (cask name) using sort command
+    if (( ${#warnings[@]} > 0 )); then
+      local sorted_warnings_str
+      sorted_warnings_str=$(printf '%s\n' "${warnings[@]}" | sort -t'|' -k1)
+      warnings=("${(f)sorted_warnings_str}")
+    fi
+    if (( ${#checkmarks[@]} > 0 )); then
+      local sorted_checkmarks_str
+      sorted_checkmarks_str=$(printf '%s\n' "${checkmarks[@]}" | sort -t'|' -k1)
+      checkmarks=("${(f)sorted_checkmarks_str}")
+    fi
+    
+    # Display warnings first, then checkmarks
+    for entry in "${warnings[@]}"; do
+      local token clean_inst clean_real clean_latest
+      IFS='|' read -r token clean_inst clean_real clean_latest <<< "$entry"
+      printf "  \033[0;33m⚠\033[0m %s (installed: %s, real: %s, latest: %s)\n" \
+        "$token" "$clean_inst" "$clean_real" "$clean_latest"
+    done
+    
+    for entry in "${checkmarks[@]}"; do
+      local token clean_inst clean_real clean_latest
+      IFS='|' read -r token clean_inst clean_real clean_latest <<< "$entry"
+      printf "  \033[0;32m✓\033[0m %s (installed: %s, real: %s, latest: %s)\n" \
+        "$token" "$clean_inst" "$clean_real" "$clean_latest"
+    done
+    
     echo ""
   fi
 
