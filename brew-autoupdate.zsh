@@ -260,9 +260,6 @@ brew_autoupdate_update() {
     return 0
   fi
 
-  # Ensure version comparison helper is available (zsh builtin).
-  autoload -Uz is-at-least 2>/dev/null || true
-
   # Ensure local/typed variables don't spam output when xtrace is enabled.
   # In zsh, TYPESET_SILENT suppresses the extra trace output for typeset/local.
   local _bauu_typeset_silent_was_on=0
@@ -383,10 +380,24 @@ brew_autoupdate_update() {
 
     # Decide whether to update:
     # - Prefer the real app version: only update when the real version is LOWER than the latest.
+    #   (Based on semantic version comparison with sort -V.)
     # - If we can't read the real version, fall back to Homebrew metadata (clean_inst vs clean_latest).
     if [[ -n "$clean_real" ]]; then
-      # If real version is equal to or newer than latest, skip.
-      if is-at-least "$clean_real" "$clean_latest"; then
+      # If real version is equal to latest, skip immediately.
+      if [[ "$clean_real" == "$clean_latest" ]]; then
+        printf "\033[0;36m==>\033[0m %s is already up-to-date (real app version %s), skipping\n" "$cask" "$real_version"
+        skipped_casks+=("$cask (installed: $clean_inst, real app: $real_version, latest: $clean_latest)")
+        ((skipped++))
+        continue
+      fi
+
+      # Use sort -V to compare versions semantically.
+      # earliest will be the lower of (clean_real, clean_latest).
+      local earliest
+      earliest=$(printf '%s\n%s\n' "$clean_real" "$clean_latest" | sort -V | head -n1)
+
+      # If earliest is not the real version, then real >= latest -> skip.
+      if [[ "$earliest" != "$clean_real" ]]; then
         printf "\033[0;36m==>\033[0m %s is already up-to-date (real app version %s), skipping\n" "$cask" "$real_version"
         skipped_casks+=("$cask (installed: $clean_inst, real app: $real_version, latest: $clean_latest)")
         ((skipped++))
