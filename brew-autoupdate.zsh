@@ -43,10 +43,11 @@ _brew_typeset_silent_restore() {
   fi
 }
 
-# Normalize version by removing ",build" suffix (e.g., "1.2.3,4" -> "1.2.3")
+# Normalize version by removing ",build" or "-build" suffix (e.g., "1.2.3,4" -> "1.2.3", "3.5.4-9dfb8d8d" -> "3.5.4")
 _brew_normalize_version() {
   local version="$1"
-  echo "${version%%,*}"
+  version="${version%%,*}"  # Remove from first comma
+  echo "${version%%-*}"     # Remove from first dash
 }
 
 # Get real app version from installed .app bundle using mdls
