@@ -3,6 +3,8 @@
 #something like this: 'username ~/workspaces % '
 PROMPT='%n %F{cyan}%~%f %%%f '
 
+setopt INTERACTIVE_COMMENTS
+
 source ~/.zsh/aliases.zsh
 source ~/.zsh/git.zsh
 
