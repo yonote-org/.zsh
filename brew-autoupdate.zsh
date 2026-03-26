@@ -43,10 +43,12 @@ _brew_typeset_silent_restore() {
   fi
 }
 
-# Normalize version by removing ",build" or "-build" suffix (e.g., "1.2.3,4" -> "1.2.3", "3.5.4-9dfb8d8d" -> "3.5.4")
+# Normalize version by removing non-significant suffixes: ",build", "-build", "+build"
+# e.g., "1.2.3,4" -> "1.2.3", "3.5.4-9dfb8d8d" -> "3.5.4", "0.4.7+4" -> "0.4.7"
 _brew_normalize_version() {
   local version="$1"
   version="${version%%,*}"  # Remove from first comma
+  version="${version%%+*}"  # Remove from first plus
   echo "${version%%-*}"     # Remove from first dash
 }
 
