@@ -2,8 +2,8 @@
 #
 # This file provides functions to manage Homebrew casks with auto-update enabled.
 # Some casks update themselves and are excluded from normal brew upgrade. These
-# functions help track and update such casks by comparing the real app version
-# (from mdls) with the latest cask version.
+# functions help track and update such casks by comparing Homebrew's recorded
+# installed cask version with the latest cask version.
 
 #==================================================================================
 # Color Constants
@@ -52,31 +52,6 @@ _brew_normalize_version() {
   echo "${version%%-*}"     # Remove from first dash
 }
 
-# Get real app version from installed .app bundle using mdls
-# Returns empty string if app path doesn't exist or version can't be determined
-_brew_get_real_app_version() {
-  local app_path="$1"
-  if [[ -e "$app_path" ]]; then
-    mdls -name kMDItemVersion -raw "$app_path" 2>/dev/null | tr -d '\r'
-  else
-    echo ""
-  fi
-}
-
-# Compare two versions semantically using sort -V
-# Returns 0 if version1 < version2, 1 otherwise
-_brew_version_is_lower() {
-  local version1="$1"
-  local version2="$2"
-
-  # Use sort -V for semantic version comparison
-  local earliest
-  earliest=$(printf '%s\n%s\n' "$version1" "$version2" | sort -V | head -n1)
-
-  # If earliest equals version1, then version1 < version2
-  [[ "$earliest" == "$version1" && "$version1" != "$version2" ]]
-}
-
 # Format a colored message with an arrow prefix
 _brew_format_message() {
   local color="$1"
@@ -96,38 +71,50 @@ _brew_format_bold_message() {
 #==================================================================================
 
 brew_autoupdate_check() {
-  # Use the real application version from the installed app bundle (via mdls)
-  # instead of only relying on the Homebrew "installed" version metadata.
-  # This is important for auto-updating casks where the app may have updated
-  # itself independently of Homebrew.
+  # Compare Homebrew's recorded installed cask version with the latest cask
+  # version, scoped to casks in the tracked list (baul). Note: for
+  # auto-updating casks, .installed is frozen at the last `brew install`/
+  # `brew upgrade` time, so it may lag the app's actual version on disk —
+  # this function reports brew's view, not the app's live state.
 
-  printf "%s\n" "Checking for autoupdate casks..."
+  # If the tracked list is missing or empty, nothing to check.
+  if [[ ! -f "$BREW_AUTOUPDATE_FILE" ]] || [[ ! -s "$BREW_AUTOUPDATE_FILE" ]]; then
+    _brew_format_message "$BREW_COLOR_YELLOW" "No casks in autoupdate list"
+    printf "Use 'baua <cask>' to add casks\n"
+    return 0
+  fi
+
+  printf "%s\n" "Checking tracked autoupdate casks..."
 
   # Manage TYPESET_SILENT option
   _brew_typeset_silent_on
   local _typeset_silent_changed=$?
 
-  local caskroom
-  caskroom="$(brew --prefix)/Caskroom"
+  # Read tracked casks from the baul list.
+  local -a tracked_casks=()
+  while IFS= read -r cask; do
+    [[ -n "$cask" ]] && tracked_casks+=("$cask")
+  done < "$BREW_AUTOUPDATE_FILE"
+
+  if (( ${#tracked_casks[@]} == 0 )); then
+    _brew_format_message "$BREW_COLOR_YELLOW" "No casks in autoupdate list"
+    _brew_typeset_silent_restore "$_typeset_silent_changed"
+    return 0
+  fi
 
   # Arrays to collect results for grouped output
-  local -a tracked_outdated=()
-  local -a untracked_outdated=()
+  local -a outdated=()
   local -a up_to_date=()
 
-  # Build a list of all auto-update casks with their installed/latest/app info.
-  # Prefer bundle_short_version (the app's real CFBundleShortVersionString as seen
-  # by brew) over .version for the "latest" comparison, since .version can use a
-  # different scheme than the app's actual short version (e.g. whatsapp whose
-  # cask version "2.26.15.16" has a leading "2." not present in the app's
-  # CFBundleShortVersionString "26.15.12").
-  brew info --cask --json=v2 $(brew ls --cask) 2>/dev/null \
+  # Fetch installed/latest for each tracked cask.
+  # Restrict to auto_updates casks only — bauX commands only handle
+  # auto-updatable casks (non-auto-update casks in the list are ignored).
+  brew info --cask --json=v2 "${tracked_casks[@]}" 2>/dev/null \
     | jq -r '
       .casks[]
       | select(.auto_updates == true)
       | .token as $token
-      | ((.bundle_short_version // "") as $short
-         | (if ($short != null and $short != "") then $short else .version end)) as $latest
+      | .version as $latest
       | (
           if (.installed | type) == "array" and (.installed | length) > 0 then
             .installed[0].version
@@ -137,112 +124,57 @@ brew_autoupdate_check() {
             empty
           end
         ) as $inst
-      | .artifacts[]?
-      | select(has("app"))
-      | .app[0] as $app
-      | "\($token)\t\($inst)\t\($latest)\t\($app)"
+      | "\($token)\t\($inst)\t\($latest)"
     ' 2>/dev/null \
-    | while IFS=$'\t' read -r token inst latest app_name; do
+    | while IFS=$'\t' read -r token inst latest; do
         # Skip incomplete lines
-        [[ -z "$token" || -z "$inst" || -z "$latest" || -z "$app_name" ]] && continue
-
-        local app_path real_version
-        app_path="$caskroom/$token/$inst/$app_name"
-
-        # Get real app version using helper
-        real_version=$(_brew_get_real_app_version "$app_path")
-
-        # If we can't determine the real version, skip this cask for now.
-        [[ -z "$real_version" ]] && continue
+        [[ -z "$token" || -z "$inst" || -z "$latest" ]] && continue
 
         # Normalize versions using helper function
-        local clean_inst clean_latest clean_real
+        local clean_inst clean_latest
         clean_inst=$(_brew_normalize_version "$inst")
         clean_latest=$(_brew_normalize_version "$latest")
-        clean_real=$(_brew_normalize_version "$real_version")
 
-        # If real version equals latest, this cask is up-to-date.
-        if [[ "$clean_real" == "$clean_latest" ]]; then
-          up_to_date+=("$token|$clean_inst|$clean_real|$clean_latest")
-          continue
-        fi
-
-        # Otherwise, the real version differs from the latest: categorize as tracked/untracked.
-        if [[ -f "$BREW_AUTOUPDATE_FILE" ]] && grep -Fxq "$token" "$BREW_AUTOUPDATE_FILE" 2>/dev/null; then
-          tracked_outdated+=("$token|$clean_inst|$clean_real|$clean_latest")
+        if [[ "$clean_inst" == "$clean_latest" ]]; then
+          up_to_date+=("$token|$clean_inst|$clean_latest")
         else
-          untracked_outdated+=("$token|$clean_inst|$clean_real|$clean_latest")
+          outdated+=("$token|$clean_inst|$clean_latest")
         fi
       done
 
   echo ""
 
-  # 1) Tracked casks whose real version differs from latest
-  if (( ${#tracked_outdated[@]} > 0 )); then
-    _brew_format_bold_message "$BREW_COLOR_BLUE" "Tracked autoupdate casks needing updates (real vs latest):"
-    for entry in "${tracked_outdated[@]}"; do
-      local token clean_inst clean_real clean_latest
-      IFS='|' read -r token clean_inst clean_real clean_latest <<< "$entry"
-      printf "  ${BREW_COLOR_RED}- %s (real: %s -> latest: %s)${BREW_COLOR_RESET}\n" "$token" "$clean_real" "$clean_latest"
+  # 1) Tracked casks whose installed version differs from latest
+  if (( ${#outdated[@]} > 0 )); then
+    _brew_format_bold_message "$BREW_COLOR_BLUE" "Tracked autoupdate casks needing updates:"
+
+    # Sort by token (cask name)
+    local sorted_outdated_str
+    sorted_outdated_str=$(printf '%s\n' "${outdated[@]}" | sort -t'|' -k1)
+    outdated=("${(f)sorted_outdated_str}")
+
+    for entry in "${outdated[@]}"; do
+      local token clean_inst clean_latest
+      IFS='|' read -r token clean_inst clean_latest <<< "$entry"
+      printf "  ${BREW_COLOR_RED}- %s (installed: %s -> latest: %s)${BREW_COLOR_RESET}\n" "$token" "$clean_inst" "$clean_latest"
     done
     echo ""
   fi
 
-  # 2) Auto-update casks not in the tracked list whose real version differs from latest
-  if (( ${#untracked_outdated[@]} > 0 )); then
-    _brew_format_bold_message "$BREW_COLOR_BLUE" "Untracked autoupdate casks needing updates (real vs latest):"
-    for entry in "${untracked_outdated[@]}"; do
-      local token clean_inst clean_real clean_latest
-      IFS='|' read -r token clean_inst clean_real clean_latest <<< "$entry"
-      printf "  ${BREW_COLOR_RED}- %s (real: %s -> latest: %s)${BREW_COLOR_RESET}\n" "$token" "$clean_real" "$clean_latest"
-    done
-    echo ""
-  fi
-
-  # 3) Auto-update casks that are up-to-date (real == latest)
+  # 2) Tracked casks that are up-to-date (installed == latest)
   if (( ${#up_to_date[@]} > 0 )); then
-    _brew_format_bold_message "$BREW_COLOR_BLUE" "Autoupdate casks that are up-to-date (real == latest):"
-    
-    # Separate into warnings and checkmarks, then sort each by cask name
-    local -a warnings=()
-    local -a checkmarks=()
-    
-    for entry in "${up_to_date[@]}"; do
-      local token clean_inst clean_real clean_latest
-      IFS='|' read -r token clean_inst clean_real clean_latest <<< "$entry"
-      
-      if [[ "$clean_inst" == "$clean_real" ]]; then
-        checkmarks+=("$entry")
-      else
-        warnings+=("$entry")
-      fi
-    done
-    
-    # Sort each array by token (cask name) using sort command
-    if (( ${#warnings[@]} > 0 )); then
-      local sorted_warnings_str
-      sorted_warnings_str=$(printf '%s\n' "${warnings[@]}" | sort -t'|' -k1)
-      warnings=("${(f)sorted_warnings_str}")
-    fi
-    if (( ${#checkmarks[@]} > 0 )); then
-      local sorted_checkmarks_str
-      sorted_checkmarks_str=$(printf '%s\n' "${checkmarks[@]}" | sort -t'|' -k1)
-      checkmarks=("${(f)sorted_checkmarks_str}")
-    fi
-    
-    # Display warnings first, then checkmarks
-    for entry in "${warnings[@]}"; do
-      local token clean_inst clean_real clean_latest
-      IFS='|' read -r token clean_inst clean_real clean_latest <<< "$entry"
-      printf "  ${BREW_COLOR_YELLOW}⚠${BREW_COLOR_RESET} %s (installed: %s, real: %s, latest: %s)\n" \
-        "$token" "$clean_inst" "$clean_real" "$clean_latest"
-    done
+    _brew_format_bold_message "$BREW_COLOR_BLUE" "Tracked autoupdate casks that are up-to-date:"
 
-    for entry in "${checkmarks[@]}"; do
-      local token clean_inst clean_real clean_latest
-      IFS='|' read -r token clean_inst clean_real clean_latest <<< "$entry"
-      printf "  ${BREW_COLOR_GREEN}✓${BREW_COLOR_RESET} %s (installed: %s, real: %s, latest: %s)\n" \
-        "$token" "$clean_inst" "$clean_real" "$clean_latest"
+    # Sort by token (cask name)
+    local sorted_str
+    sorted_str=$(printf '%s\n' "${up_to_date[@]}" | sort -t'|' -k1)
+    up_to_date=("${(f)sorted_str}")
+
+    for entry in "${up_to_date[@]}"; do
+      local token clean_inst clean_latest
+      IFS='|' read -r token clean_inst clean_latest <<< "$entry"
+      printf "  ${BREW_COLOR_GREEN}✓${BREW_COLOR_RESET} %s (installed: %s, latest: %s)\n" \
+        "$token" "$clean_inst" "$clean_latest"
     done
 
     echo ""
@@ -375,20 +307,15 @@ brew_autoupdate_update() {
 
   _brew_format_bold_message "$BREW_COLOR_BLUE" "Checking ${#casks[@]} cask(s) for updates:"
   printf "  %s\n\n" "${casks[*]}"
-  
-  # Get metadata for casks whose Homebrew-installed version differs from the latest.
-  # We will then check the *real* app version (via mdls) only for these candidates.
-  local caskroom
-  caskroom="$(brew --prefix)/Caskroom"
-  
-  local outdated_info
-  outdated_info=$(brew info --cask --json=v2 "${casks[@]}" 2>/dev/null \
+
+  # Get installed/latest version metadata for each cask.
+  local cask_info
+  cask_info=$(brew info --cask --json=v2 "${casks[@]}" 2>/dev/null \
     | jq -r '
       .casks[]
       | select(.auto_updates == true)
       | .token as $token
-      | ((.bundle_short_version // "") as $short
-         | (if ($short != null and $short != "") then $short else .version end)) as $latest
+      | .version as $latest
       | (
           if (.installed | type) == "array" and (.installed | length) > 0 then
             .installed[0].version
@@ -398,106 +325,48 @@ brew_autoupdate_update() {
             empty
           end
         ) as $inst
-      | select($inst != null and $inst != .version)
-      | .artifacts[]?
-      | select(has("app"))
-      | .app[0] as $app
-      | "\($token)\t\($inst)\t\($latest)\t\($app)"
+      | "\($token)\t\($inst)\t\($latest)"
     ' 2>/dev/null)
-  
+
   local updated=0
   local failed=0
   local skipped=0
   local updated_casks=()
   local skipped_casks=()
   local total=${#casks[@]}
-  
+
   for cask in "${casks[@]}"; do
-    # Find metadata for this cask among those with installed != latest.
-    local info_line token inst latest app_name
+    local info_line token inst latest
 
     # Use a single local assignment so TYPESET_SILENT can suppress xtrace noise.
-    local info_line=$(printf '%s\n' "$outdated_info" | awk -F '\t' -v c="$cask" '$1 == c { print; exit }')
+    local info_line=$(printf '%s\n' "$cask_info" | awk -F '\t' -v c="$cask" '$1 == c { print; exit }')
 
     if [[ -z "$info_line" ]]; then
-      # Homebrew installed version already matches latest; no need to check real app version.
-      # Fetch versions once for summary display (no mdls here).
-      local meta_inst meta_latest
-      meta_inst="$(brew info --cask --json=v2 "$cask" 2>/dev/null \
-        | jq -r '
-          .casks[0] as $c
-          | (
-              if ($c.installed | type) == "array" and ($c.installed | length) > 0 then
-                $c.installed[0].version
-              elif ($c.installed | type) == "string" then
-                $c.installed
-              else
-                empty
-              end
-            )'
-      )"
-      meta_latest="$(brew info --cask --json=v2 "$cask" 2>/dev/null \
-        | jq -r '.casks[0].version'
-      )"
-      local clean_meta_inst clean_meta_latest
-      clean_meta_inst=$(_brew_normalize_version "$meta_inst")
-      clean_meta_latest=$(_brew_normalize_version "$meta_latest")
-
-      _brew_format_message "$BREW_COLOR_CYAN" "$cask is already up-to-date (brew metadata $clean_meta_latest)"
-      skipped_casks+=("$cask (installed: $clean_meta_inst, latest: $clean_meta_latest)")
+      _brew_format_message "$BREW_COLOR_YELLOW" "$cask: no metadata found, skipping"
       ((skipped++))
       continue
     fi
 
-    IFS=$'\t' read -r token inst latest app_name <<< "$info_line"
+    IFS=$'\t' read -r token inst latest <<< "$info_line"
 
     # Normalize versions using helper function
     local clean_inst clean_latest
     clean_inst=$(_brew_normalize_version "$inst")
     clean_latest=$(_brew_normalize_version "$latest")
 
-    # Determine the real app version from the installed app bundle
-    local app_path real_version clean_real
-    app_path="$caskroom/$token/$inst/$app_name"
-
-    real_version=$(_brew_get_real_app_version "$app_path")
-    if [[ -n "$real_version" ]]; then
-      clean_real=$(_brew_normalize_version "$real_version")
-    else
-      clean_real=""
+    # Skip if brew's installed version already matches the latest.
+    if [[ "$clean_inst" == "$clean_latest" ]]; then
+      _brew_format_message "$BREW_COLOR_CYAN" "$cask is already up-to-date, skipping"
+      skipped_casks+=("$cask (installed: $clean_inst, latest: $clean_latest)")
+      ((skipped++))
+      continue
     fi
 
-    # Decide whether to update:
-    # - Prefer the real app version: only update when the real version is LOWER than the latest.
-    # - If we can't read the real version, fall back to Homebrew metadata (clean_inst vs clean_latest).
-    if [[ -n "$clean_real" ]]; then
-      # If real version equals latest or is higher, skip the update
-      if [[ "$clean_real" == "$clean_latest" ]] || ! _brew_version_is_lower "$clean_real" "$clean_latest"; then
-        _brew_format_message "$BREW_COLOR_CYAN" "$cask is already up-to-date (real app version $real_version), skipping"
-        skipped_casks+=("$cask (installed: $clean_inst, real app: $real_version, latest: $clean_latest)")
-        ((skipped++))
-        continue
-      fi
-    else
-      # Fall back to Homebrew metadata comparison
-      if [[ "$clean_inst" == "$clean_latest" ]]; then
-        _brew_format_message "$BREW_COLOR_CYAN" "$cask is already up-to-date, skipping"
-        skipped_casks+=("$cask (installed: $clean_inst, latest: $clean_latest)")
-        ((skipped++))
-        continue
-      fi
-    fi
-
-    # At this point, real app version (if known) differs from latest, so update.
+    # Installed differs from latest, upgrade.
     _brew_format_message "$BREW_COLOR_BLUE" "Updating $cask..."
     if brew_greedy_cask_upgrade "$cask"; then
-      if [[ -n "$clean_real" ]]; then
-        _brew_format_message "$BREW_COLOR_GREEN" "Successfully updated $cask ($clean_real -> $clean_latest)"
-        updated_casks+=("$cask ($clean_real -> $clean_latest)")
-      else
-        _brew_format_message "$BREW_COLOR_GREEN" "Successfully updated $cask ($clean_inst -> $clean_latest)"
-        updated_casks+=("$cask ($clean_inst -> $clean_latest)")
-      fi
+      _brew_format_message "$BREW_COLOR_GREEN" "Successfully updated $cask ($clean_inst -> $clean_latest)"
+      updated_casks+=("$cask ($clean_inst -> $clean_latest)")
       ((updated++))
     else
       _brew_format_message "$BREW_COLOR_RED" "Failed to update $cask"
