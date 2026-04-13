@@ -116,12 +116,18 @@ brew_autoupdate_check() {
   local -a up_to_date=()
 
   # Build a list of all auto-update casks with their installed/latest/app info.
+  # Prefer bundle_short_version (the app's real CFBundleShortVersionString as seen
+  # by brew) over .version for the "latest" comparison, since .version can use a
+  # different scheme than the app's actual short version (e.g. whatsapp whose
+  # cask version "2.26.15.16" has a leading "2." not present in the app's
+  # CFBundleShortVersionString "26.15.12").
   brew info --cask --json=v2 $(brew ls --cask) 2>/dev/null \
     | jq -r '
       .casks[]
       | select(.auto_updates == true)
       | .token as $token
-      | .version as $latest
+      | ((.bundle_short_version // "") as $short
+         | (if ($short != null and $short != "") then $short else .version end)) as $latest
       | (
           if (.installed | type) == "array" and (.installed | length) > 0 then
             .installed[0].version
@@ -381,7 +387,8 @@ brew_autoupdate_update() {
       .casks[]
       | select(.auto_updates == true)
       | .token as $token
-      | .version as $latest
+      | ((.bundle_short_version // "") as $short
+         | (if ($short != null and $short != "") then $short else .version end)) as $latest
       | (
           if (.installed | type) == "array" and (.installed | length) > 0 then
             .installed[0].version
