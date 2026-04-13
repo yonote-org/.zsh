@@ -250,8 +250,59 @@ brew_autoupdate_add() {
   [[ ! -d "$BREW_LOCAL_CONFIG_DIR" ]] && mkdir -p "$BREW_LOCAL_CONFIG_DIR"
   [[ ! -f "$BREW_AUTOUPDATE_FILE" ]] && touch "$BREW_AUTOUPDATE_FILE"
 
+  # Manage TYPESET_SILENT option (suppress xtrace noise from local assignments)
+  _brew_typeset_silent_on
+  local _typeset_silent_changed=$?
+
   local added=0
   for cask in "$@"; do
+    # Query Homebrew for this name (returns both casks and formulae).
+    local info
+    info=$(brew info --json=v2 "$cask" 2>/dev/null)
+    if [[ -z "$info" ]]; then
+      _brew_format_message "$BREW_COLOR_YELLOW" "'$cask' not found in Homebrew, skipping"
+      continue
+    fi
+
+    # Classify (cask / formula / none) and pull cask fields in one jq pass.
+    # When a name matches both, we prefer cask (that's what baua is for).
+    # Use '|' as delimiter (non-whitespace) so `read` doesn't merge empty
+    # fields — the "installed" field is empty when the cask isn't installed.
+    local parsed kind installed auto_updates
+    parsed=$(echo "$info" | jq -r '
+      if ((.casks // []) | length) > 0 then
+        "cask|\(.casks[0].installed // "")|\(.casks[0].auto_updates // false)"
+      elif ((.formulae // []) | length) > 0 then
+        "formula||"
+      else
+        "none||"
+      end
+    ')
+    IFS='|' read -r kind installed auto_updates <<< "$parsed"
+
+    case "$kind" in
+      formula)
+        _brew_format_message "$BREW_COLOR_YELLOW" "'$cask' is a formula, not a cask — skipping"
+        continue
+        ;;
+      none)
+        _brew_format_message "$BREW_COLOR_YELLOW" "'$cask' not found in Homebrew, skipping"
+        continue
+        ;;
+    esac
+
+    # It's a cask. Warn if not installed.
+    if [[ -z "$installed" ]]; then
+      _brew_format_message "$BREW_COLOR_YELLOW" "Cask '$cask' is not installed — skipping"
+      continue
+    fi
+
+    # Warn if the cask isn't auto-updatable (baua is only for auto-update casks).
+    if [[ "$auto_updates" != "true" ]]; then
+      _brew_format_message "$BREW_COLOR_YELLOW" "Cask '$cask' is not auto-updatable — skipping"
+      continue
+    fi
+
     # Check if cask is already in the list (use -Fx for whole-line literal matching)
     if grep -Fxq "$cask" "$BREW_AUTOUPDATE_FILE" 2>/dev/null; then
       _brew_format_message "$BREW_COLOR_YELLOW" "Cask '$cask' is already in the autoupdate list"
@@ -268,6 +319,9 @@ brew_autoupdate_add() {
     echo ""
     _brew_format_message "$BREW_COLOR_BLUE" "Autoupdate list saved: $BREW_AUTOUPDATE_FILE"
   fi
+
+  # Restore TYPESET_SILENT state
+  _brew_typeset_silent_restore "$_typeset_silent_changed"
 }
 
 brew_autoupdate_remove() {
