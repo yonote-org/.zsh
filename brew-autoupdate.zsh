@@ -72,44 +72,73 @@ _brew_format_bold_message() {
 
 brew_autoupdate_check() {
   # Compare Homebrew's recorded installed cask version with the latest cask
-  # version, scoped to casks in the tracked list (baul). Note: for
+  # version. By default scoped to casks in the tracked list (baul); pass
+  # --all to check every installed auto-update cask instead. Note: for
   # auto-updating casks, .installed is frozen at the last `brew install`/
   # `brew upgrade` time, so it may lag the app's actual version on disk —
   # this function reports brew's view, not the app's live state.
 
-  # If the tracked list is missing or empty, nothing to check.
-  if [[ ! -f "$BREW_AUTOUPDATE_FILE" ]] || [[ ! -s "$BREW_AUTOUPDATE_FILE" ]]; then
-    _brew_format_message "$BREW_COLOR_YELLOW" "No casks in autoupdate list"
-    printf "Use 'baua <cask>' to add casks\n"
-    return 0
+  # Parse arguments
+  local all_mode=0
+  while (( $# > 0 )); do
+    case "$1" in
+      --all)
+        all_mode=1
+        shift
+        ;;
+      -h|--help)
+        echo "Usage: bauc [--all]"
+        echo "  Check tracked auto-update casks for available updates."
+        echo "  --all    Check all installed auto-update casks, not just the tracked list."
+        return 0
+        ;;
+      *)
+        echo "bauc: unknown argument '$1'" >&2
+        echo "Usage: bauc [--all]" >&2
+        return 1
+        ;;
+    esac
+  done
+
+  # Determine candidate casks based on scope.
+  local -a candidate_casks=()
+  local scope_label
+  if (( all_mode )); then
+    scope_label="All"
+    while IFS= read -r cask; do
+      [[ -n "$cask" ]] && candidate_casks+=("$cask")
+    done <<< "$(brew ls --cask 2>/dev/null)"
+    printf "%s\n" "Checking all installed auto-update casks..."
+  else
+    scope_label="Tracked"
+    if [[ ! -f "$BREW_AUTOUPDATE_FILE" ]] || [[ ! -s "$BREW_AUTOUPDATE_FILE" ]]; then
+      _brew_format_message "$BREW_COLOR_YELLOW" "No casks in autoupdate list"
+      printf "Use 'baua <cask>' to add casks, or run 'bauc --all' to check all installed auto-update casks\n"
+      return 0
+    fi
+    while IFS= read -r cask; do
+      [[ -n "$cask" ]] && candidate_casks+=("$cask")
+    done < "$BREW_AUTOUPDATE_FILE"
+    printf "%s\n" "Checking tracked autoupdate casks..."
   fi
 
-  printf "%s\n" "Checking tracked autoupdate casks..."
+  if (( ${#candidate_casks[@]} == 0 )); then
+    _brew_format_message "$BREW_COLOR_YELLOW" "No casks to check"
+    return 0
+  fi
 
   # Manage TYPESET_SILENT option
   _brew_typeset_silent_on
   local _typeset_silent_changed=$?
 
-  # Read tracked casks from the baul list.
-  local -a tracked_casks=()
-  while IFS= read -r cask; do
-    [[ -n "$cask" ]] && tracked_casks+=("$cask")
-  done < "$BREW_AUTOUPDATE_FILE"
-
-  if (( ${#tracked_casks[@]} == 0 )); then
-    _brew_format_message "$BREW_COLOR_YELLOW" "No casks in autoupdate list"
-    _brew_typeset_silent_restore "$_typeset_silent_changed"
-    return 0
-  fi
-
   # Arrays to collect results for grouped output
   local -a outdated=()
   local -a up_to_date=()
 
-  # Fetch installed/latest for each tracked cask.
+  # Fetch installed/latest for each candidate cask.
   # Restrict to auto_updates casks only — bauX commands only handle
-  # auto-updatable casks (non-auto-update casks in the list are ignored).
-  brew info --cask --json=v2 "${tracked_casks[@]}" 2>/dev/null \
+  # auto-updatable casks (non-auto-update casks are ignored).
+  brew info --cask --json=v2 "${candidate_casks[@]}" 2>/dev/null \
     | jq -r '
       .casks[]
       | select(.auto_updates == true)
@@ -144,9 +173,9 @@ brew_autoupdate_check() {
 
   echo ""
 
-  # 1) Tracked casks whose installed version differs from latest
+  # 1) Casks whose installed version differs from latest
   if (( ${#outdated[@]} > 0 )); then
-    _brew_format_bold_message "$BREW_COLOR_BLUE" "Tracked autoupdate casks needing updates:"
+    _brew_format_bold_message "$BREW_COLOR_BLUE" "${scope_label} autoupdate casks needing updates:"
 
     # Sort by token (cask name)
     local sorted_outdated_str
@@ -161,9 +190,9 @@ brew_autoupdate_check() {
     echo ""
   fi
 
-  # 2) Tracked casks that are up-to-date (installed == latest)
+  # 2) Casks that are up-to-date (installed == latest)
   if (( ${#up_to_date[@]} > 0 )); then
-    _brew_format_bold_message "$BREW_COLOR_BLUE" "Tracked autoupdate casks that are up-to-date:"
+    _brew_format_bold_message "$BREW_COLOR_BLUE" "${scope_label} autoupdate casks that are up-to-date:"
 
     # Sort by token (cask name)
     local sorted_str
@@ -177,6 +206,12 @@ brew_autoupdate_check() {
         "$token" "$clean_inst" "$clean_latest"
     done
 
+    echo ""
+  fi
+
+  # If nothing matched (e.g. candidates had no auto-update casks), say so.
+  if (( ${#outdated[@]} == 0 && ${#up_to_date[@]} == 0 )); then
+    _brew_format_message "$BREW_COLOR_YELLOW" "No auto-updatable casks found to check"
     echo ""
   fi
 
@@ -195,11 +230,11 @@ brew_greedy_cask_upgrade() {
 
 ### Autoupdate Cask Management ###
 alias bug="brew_greedy_cask_upgrade"  # Upgrade a cask with --greedy flag (ignores auto-updates)
-alias bauc="brew_autoupdate_check"  # Check which casks with auto-updates have newer versions available
+alias bauc="brew_autoupdate_check"  # Check tracked auto-update casks for updates (pass --all to check all installed)
 alias baua="brew_autoupdate_add"  # Add cask(s) to the autoupdate list
 alias baur="brew_autoupdate_remove"  # Remove cask(s) from the autoupdate list
 alias baul="brew_autoupdate_list"  # List all casks in the autoupdate list
-alias bauu="brew_autoupdate_update"  # Update all casks in the autoupdate list with --greedy flag
+alias bauu="brew_autoupdate_update"  # Upgrade tracked auto-update casks (--greedy). Pass --all to upgrade all installed
 
 # Autoupdate cask management functions
 BREW_LOCAL_CONFIG_DIR="$HOME/.homebrew"
@@ -281,36 +316,67 @@ brew_autoupdate_list() {
 }
 
 brew_autoupdate_update() {
-  # If file doesn't exist, no casks to update
-  if [[ ! -f "$BREW_AUTOUPDATE_FILE" ]] || [[ ! -s "$BREW_AUTOUPDATE_FILE" ]]; then
-    _brew_format_message "$BREW_COLOR_YELLOW" "No casks in autoupdate list"
+  # Parse arguments
+  local all_mode=0
+  while (( $# > 0 )); do
+    case "$1" in
+      --all)
+        all_mode=1
+        shift
+        ;;
+      -h|--help)
+        echo "Usage: bauu [--all]"
+        echo "  Upgrade tracked auto-update casks with --greedy."
+        echo "  --all    Upgrade all installed auto-update casks, not just the tracked list."
+        return 0
+        ;;
+      *)
+        echo "bauu: unknown argument '$1'" >&2
+        echo "Usage: bauu [--all]" >&2
+        return 1
+        ;;
+    esac
+  done
+
+  # Determine candidate casks based on scope.
+  local -a candidate_casks=()
+  local scope_label
+  if (( all_mode )); then
+    scope_label="all installed auto-update"
+    while IFS= read -r cask; do
+      [[ -n "$cask" ]] && candidate_casks+=("$cask")
+    done <<< "$(brew ls --cask 2>/dev/null)"
+  else
+    scope_label="tracked"
+    if [[ ! -f "$BREW_AUTOUPDATE_FILE" ]] || [[ ! -s "$BREW_AUTOUPDATE_FILE" ]]; then
+      _brew_format_message "$BREW_COLOR_YELLOW" "No casks in autoupdate list"
+      printf "Use 'baua <cask>' to add casks, or run 'bauu --all' to upgrade all installed auto-update casks\n"
+      return 0
+    fi
+    while IFS= read -r cask; do
+      [[ -n "$cask" ]] && candidate_casks+=("$cask")
+    done < "$BREW_AUTOUPDATE_FILE"
+  fi
+
+  if (( ${#candidate_casks[@]} == 0 )); then
+    _brew_format_message "$BREW_COLOR_YELLOW" "No casks to update"
     return 0
   fi
 
   # Manage TYPESET_SILENT option
   _brew_typeset_silent_on
   local _typeset_silent_changed=$?
-  
-  local casks=()
-  while IFS= read -r cask; do
-    [[ -n "$cask" ]] && casks+=("$cask")
-  done < "$BREW_AUTOUPDATE_FILE"
-  
-  if [[ ${#casks[@]} -eq 0 ]]; then
-    _brew_format_message "$BREW_COLOR_YELLOW" "No casks to update"
-    return 0
-  fi
 
   _brew_format_bold_message "$BREW_COLOR_BLUE" "Updating Homebrew to check for latest versions..."
   brew update >/dev/null 2>&1
   echo ""
 
-  _brew_format_bold_message "$BREW_COLOR_BLUE" "Checking ${#casks[@]} cask(s) for updates:"
-  printf "  %s\n\n" "${casks[*]}"
-
-  # Get installed/latest version metadata for each cask.
+  # Get installed/latest version metadata, filtering to auto-update casks only.
+  # Non-auto-update candidates (e.g. a non-auto-update cask in baul, or
+  # regular casks picked up by 'brew ls --cask' in --all mode) are silently
+  # filtered out here — bauX commands only handle auto-updatable casks.
   local cask_info
-  cask_info=$(brew info --cask --json=v2 "${casks[@]}" 2>/dev/null \
+  cask_info=$(brew info --cask --json=v2 "${candidate_casks[@]}" 2>/dev/null \
     | jq -r '
       .casks[]
       | select(.auto_updates == true)
@@ -328,6 +394,21 @@ brew_autoupdate_update() {
       | "\($token)\t\($inst)\t\($latest)"
     ' 2>/dev/null)
 
+  # Build ordered list of auto-update casks from the filtered info.
+  local casks=()
+  while IFS=$'\t' read -r t _rest; do
+    [[ -n "$t" ]] && casks+=("$t")
+  done <<< "$cask_info"
+
+  if (( ${#casks[@]} == 0 )); then
+    _brew_format_message "$BREW_COLOR_YELLOW" "No auto-updatable casks found to update"
+    _brew_typeset_silent_restore "$_typeset_silent_changed"
+    return 0
+  fi
+
+  _brew_format_bold_message "$BREW_COLOR_BLUE" "Checking ${#casks[@]} ${scope_label} cask(s) for updates:"
+  printf "  %s\n\n" "${casks[*]}"
+
   local updated=0
   local failed=0
   local skipped=0
@@ -342,6 +423,7 @@ brew_autoupdate_update() {
     local info_line=$(printf '%s\n' "$cask_info" | awk -F '\t' -v c="$cask" '$1 == c { print; exit }')
 
     if [[ -z "$info_line" ]]; then
+      # Should not happen since $casks was derived from $cask_info, but guard anyway.
       _brew_format_message "$BREW_COLOR_YELLOW" "$cask: no metadata found, skipping"
       ((skipped++))
       continue
@@ -373,7 +455,7 @@ brew_autoupdate_update() {
       ((failed++))
     fi
   done
-  
+
   echo ""
   _brew_format_bold_message "$BREW_COLOR_BLUE" "Update summary:"
   if [[ $updated -gt 0 ]]; then
