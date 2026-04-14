@@ -53,7 +53,8 @@ Provides convenient aliases for common commands:
 
 - `ls` - Colored directory listing
 - `ll` - Long format listing with hidden files
-- `finder` - Opens macOS Finder, can be used with a directory as parameter: open the specified folder in the finder 
+- `finder` - Opens macOS Finder, can be used with a directory as parameter: open the specified folder in the finder
+- `cdr` - Change directory to the root of the current Git repository or worktree
 
 ### git.zsh
 
@@ -65,6 +66,14 @@ Enhances the prompt with Git repository information:
   - Color-coded branch and state information
 
 **Prompt Enhancement:** Adds `branch-name (STATE)` to your prompt when in a Git repository
+
+**Functions:**
+- `cd_git_root` (alias: `cdr`) - Changes directory to the root of the current Git repository. Works with both regular repositories and Git worktrees — in a worktree, it navigates to the worktree root, not the main repository's location.
+
+**Usage:**
+```bash
+cdr    # Jump to repo/worktree root from any subdirectory
+```
 
 ### history.zsh
 

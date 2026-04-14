@@ -51,6 +51,17 @@ git_state_formated() {
 }
 
 # Enable prompt substitution to allow dynamic command evaluation
+# Change directory to the root of the current git repository or worktree
+cd_git_root() {
+  local toplevel
+  toplevel=$(git rev-parse --show-toplevel 2>/dev/null)
+  if [[ -z $toplevel ]]; then
+    echo "Not inside a git repository" >&2
+    return 1
+  fi
+  cd "$toplevel"
+}
+
 setopt PROMPT_SUBST
 
 # Modify the existing PROMPT to inject git information before the final prompt character
