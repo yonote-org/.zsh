@@ -55,6 +55,7 @@ Provides convenient aliases for common commands:
 - `ll` - Long format listing with hidden files
 - `finder` - Opens macOS Finder, can be used with a directory as parameter: open the specified folder in the finder
 - `cdr` - Change directory to the root of the current Git repository or worktree
+- `cdw` - Change directory to a subdirectory of `~/workspaces`. Supports tab completion: typing `cdw <prefix><TAB>` lists matching subdirectories of `~/workspaces` (e.g. `cdw pm<TAB>` offers `pmain`, `pmain-worktrees`).
 
 ### git.zsh
 
