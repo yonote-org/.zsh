@@ -32,7 +32,13 @@ brewuy() {
     
     if [[ -n $OUTDATED_CASKS ]]; then
       printf "\n\033[0;34m==>\033[0m $(tput bold)Updated casks:\n$(tput sgr0)"
-      echo "$OUTDATED_CASKS"
+      echo "$OUTDATED_CASKS" | while IFS= read -r line; do
+        if [[ "$line" =~ '^(.+) \((.+)\) != (.+)$' ]]; then
+          echo "${match[1]} ($(_brew_normalize_version "${match[2]}")) != $(_brew_normalize_version "${match[3]}")"
+        else
+          echo "$line"
+        fi
+      done
     fi
     if [[ -n $OUTDATED_FORMULAE ]]; then
       printf "\n\033[0;34m==>\033[0m $(tput bold)Updated formulae:\n$(tput sgr0)"

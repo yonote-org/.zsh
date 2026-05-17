@@ -1,3 +1,9 @@
+# Locale: English language with Israel region settings
+export LANG="en_US.UTF-8"
+export LC_MONETARY="he_IL.UTF-8"
+export LC_NUMERIC="he_IL.UTF-8"
+export LC_COLLATE="he_IL.UTF-8"
+
 # Custom prompt configuration
 # this configure the prompt to only show the current directory and the user name
 #something like this: 'username ~/workspaces % '
@@ -29,4 +35,7 @@ source ~/.zsh/brew-enhancements.zsh
 
 # Homebrew autoupdate cask management
 source ~/.zsh/brew-autoupdate.zsh
+
+# Personal configuration (git-ignored, optional)
+[[ -f ~/.zsh/personal.zsh ]] && source ~/.zsh/personal.zsh
 
