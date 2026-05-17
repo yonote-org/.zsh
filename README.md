@@ -32,18 +32,19 @@ This project consists of a main configuration file (`configs.zsh`) that sources 
 - **history.zsh** - Advanced history search widgets
 - **confirm.zsh** - Interactive confirmation function
 - **members.zsh** - macOS group membership utility
-- **claude-run.zsh** - Claude Code setup with AWS Bedrock integration
 - **uless.zsh** - Color-preserving less integration
 - **brew-enhancements.zsh** - Homebrew aliases and core upgrade utilities
 - **brew-autoupdate.zsh** - Homebrew cask autoupdate management (real-version aware)
-- **personal.zsh** - Personal configuration overrides (git-ignored, optional)
+- **local.zsh** - Local configuration overrides (git-ignored, optional)
 
 ## Addon Details
 
 ### configs.zsh
 
 The main configuration orchestrator that:
+- Sets the `LANG` locale to `en_US.UTF-8`
 - Sets up a custom prompt showing username and current directory
+- Enables `INTERACTIVE_COMMENTS` (allows `#` comments in interactive shell)
 - Sources all other addon modules
 
 **Prompt Format:** `username ~/workspaces %`
@@ -120,25 +121,6 @@ members staff
 
 **Usage:** `members <group-name>`
 
-### claude-run.zsh
-
-Claude Code integration with AWS Bedrock:
-
-- **Function:** `claude-run`
-- **Features:**
-  - Automatically checks for active AWS session
-  - Runs AWS SSO login if session expired
-  - Launches Claude Code with proper environment variables
-  - Configures AWS Bedrock with profile `claude-code` in region `eu-west-1`
-  - Uses Claude Sonnet 4.5 model
-
-**Usage:** Simply run `claude-run` to start Claude Code with AWS Bedrock backend.
-
-**Requirements:**
-- AWS CLI configured with `claude-code` profile
-- AWS SSO access configured
-- Claude Code installed
-
 ### uless.zsh
 
 Automatic color preservation when piping to `less`:
@@ -195,7 +177,7 @@ Homebrew cask autoupdate management (for casks with `auto_updates true` that are
 Some Homebrew casks have auto-update enabled, which means they update themselves automatically. These casks are not included in `brew update` and `brew upgrade` by default. The autoupdate management functions allow you to track and update these casks manually. These functions are particularly useful when you have installed casks using auto-update that you don't use in your day-to-day routine but that are important to you to stay up to date.
 
 **Aliases:**
-- `bauc` - Alias of `brew_autoupdate_check`. Scans all installed casks with `auto_updates == true`, compares the **real app version** (from `mdls`) to the latest cask version, and groups casks into tracked/untracked and up-to-date vs outdated, showing real vs latest versions.
+- `bauc` - Alias of `brew_autoupdate_check`. Scans tracked casks with `auto_updates == true`, compares the **real app version** (from `mdls`) to the latest cask version, and groups casks into up-to-date vs outdated, showing real vs latest versions. Pass `--all` to check all installed auto-update casks instead of just the tracked list.
 
 - `baua` - Alias of `brew_autoupdate_add`. Adds one or more casks to the autoupdate tracking list. The list is stored in `~/.homebrew/autoupdate-casks.config`. Duplicates are automatically prevented. Usage: `baua <cask1> [cask2] ...`
 
@@ -203,7 +185,7 @@ Some Homebrew casks have auto-update enabled, which means they update themselves
 
 - `baul` - Alias of `brew_autoupdate_list`. Displays all casks currently in the autoupdate tracking list.
 
-- `bauu` - Alias of `brew_autoupdate_update`. Updates all tracked casks with `auto_updates == true` whose **real app version is lower than the latest**. It:
+- `bauu` - Alias of `brew_autoupdate_update`. Updates tracked casks with `auto_updates == true` whose **real app version is lower than the latest**. Pass `--all` to update all installed auto-update casks instead of just the tracked list. It:
   - Updates Homebrew to check for latest versions
   - Uses real app versions from `mdls` when possible (with comma/build number normalization)
   - Skips casks where real version is equal to or newer than latest
@@ -215,8 +197,11 @@ Some Homebrew casks have auto-update enabled, which means they update themselves
 
 **Usage Examples:**
 ```bash
-# Check which auto-update casks have newer versions (real vs latest, grouped)
+# Check tracked auto-update casks for newer versions
 bauc
+
+# Check all installed auto-update casks (not just tracked)
+bauc --all
 
 # Add casks to the tracking list
 baua google-chrome firefox
@@ -236,9 +221,9 @@ bug firefox
 
 **Note:** The autoupdate list is stored in `~/.homebrew/autoupdate-casks.config` and is automatically sorted alphabetically.
 
-### personal.zsh
+### local.zsh
 
-Personal configuration file for machine-specific or user-specific settings that should not be committed to the repository.
+Local configuration file for machine-specific or user-specific settings that should not be committed to the repository.
 
 - **Git-ignored:** This file is excluded from version control via `.gitignore`
 - **Optional:** Sourced only if it exists — no warning or error if absent
@@ -246,12 +231,13 @@ Personal configuration file for machine-specific or user-specific settings that 
 
 **Example content:**
 ```bash
+export LC_MONETARY="he_IL.UTF-8"
 alias claude='claude --model "claude-opus-4-6[1m]"'
 ```
 
-To create your personal configuration:
+To create your local configuration:
 ```bash
-touch ~/.zsh/personal.zsh
+touch ~/.zsh/local.zsh
 # Add your personal aliases and settings
 ```
 
@@ -262,7 +248,7 @@ Each addon can be customized by editing the respective file in `~/.zsh/`. The mo
 - Enable/disable addons by commenting out lines in `configs.zsh`
 - Modify behavior by editing individual addon files
 - Add your own addons by creating new files and sourcing them in `configs.zsh`
-- Use `personal.zsh` for machine-specific or private settings (git-ignored)
+- Use `local.zsh` for machine-specific or private settings (git-ignored)
 
 ## Requirements
 
@@ -270,8 +256,6 @@ Each addon can be customized by editing the respective file in `~/.zsh/`. The mo
 - **Homebrew** - For `brew-enhancements.zsh` and `uless.zsh`
 - **expect** - Automatically installed by `uless.zsh` if missing
 - **Git** - For `git.zsh` functionality
-- **AWS CLI** - For `claude-run.zsh` (optional)
-- **Claude Code** - For `claude-run.zsh` (optional)
 
 ## License
 
