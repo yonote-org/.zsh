@@ -35,7 +35,7 @@ This project consists of a main configuration file (`configs.zsh`) that sources 
 - **uless.zsh** - Color-preserving less integration
 - **brew-enhancements.zsh** - Homebrew aliases and core upgrade utilities
 - **brew-autoupdate.zsh** - Homebrew cask autoupdate management (real-version aware)
-- **local.zsh** - Local configuration overrides (git-ignored, optional)
+- **local-user-config.zsh** - Local user configuration overrides (git-ignored, optional)
 
 ## Addon Details
 
@@ -222,7 +222,7 @@ bug firefox
 
 **Note:** The autoupdate list is stored in `~/.homebrew/autoupdate-casks.config` and is automatically sorted alphabetically.
 
-### local.zsh
+### local-user-config.zsh
 
 Local configuration file for machine-specific or user-specific settings that should not be committed to the repository.
 
@@ -238,7 +238,7 @@ alias myalias='some-command --with-options'
 
 To create your local configuration:
 ```bash
-touch ~/.zsh/local.zsh
+touch ~/.zsh/local-user-config.zsh
 # Add your personal aliases and settings
 ```
 
@@ -249,7 +249,7 @@ Each addon can be customized by editing the respective file in `~/.zsh/`. The mo
 - Enable/disable addons by commenting out lines in `configs.zsh`
 - Modify behavior by editing individual addon files
 - Add your own addons by creating new files and sourcing them in `configs.zsh`
-- Use `local.zsh` for machine-specific or private settings (git-ignored)
+- Use `local-user-config.zsh` for machine-specific or private settings (git-ignored)
 
 ## Requirements
 

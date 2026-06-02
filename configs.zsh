@@ -31,5 +31,5 @@ source ~/.zsh/brew-enhancements.zsh
 source ~/.zsh/brew-autoupdate.zsh
 
 # Local configuration (git-ignored, optional)
-[[ -f ~/.zsh/local.zsh ]] && source ~/.zsh/local.zsh
+[[ -f ~/.zsh/local-user-config.zsh ]] && source ~/.zsh/local-user-config.zsh
 
