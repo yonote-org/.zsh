@@ -8,3 +8,5 @@ _cdw() { _path_files -W ~/workspaces -/ }
 compdef _cdw cdw
 
 alias cdr='cd_git_root'
+
+alias claude46='claude --model "claude-opus-4-6[1m]"'

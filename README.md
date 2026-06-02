@@ -58,6 +58,7 @@ Provides convenient aliases for common commands:
 - `finder` - Opens macOS Finder, can be used with a directory as parameter: open the specified folder in the finder
 - `cdr` - Change directory to the root of the current Git repository or worktree
 - `cdw` - Change directory to a subdirectory of `~/workspaces`. Supports tab completion: typing `cdw <prefix><TAB>` lists matching subdirectories of `~/workspaces` (e.g. `cdw pm<TAB>` offers `pmain`, `pmain-worktrees`).
+- `claude46` - Run `claude` pinned to the `claude-opus-4-6[1m]` model
 
 ### git.zsh
 
@@ -232,7 +233,7 @@ Local configuration file for machine-specific or user-specific settings that sho
 **Example content:**
 ```bash
 export LC_MONETARY="he_IL.UTF-8"
-alias claude='claude --model "claude-opus-4-6[1m]"'
+alias myalias='some-command --with-options'
 ```
 
 To create your local configuration:
