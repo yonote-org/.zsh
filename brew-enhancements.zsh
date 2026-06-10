@@ -13,7 +13,7 @@ brewuu() {
 
   if read -q "?Do you want to proceed? (y/n)"; then
     echo ''
-    brew upgrade
+    brew upgrade -y
     printf "\n\033[0;34m==>\033[0m $(tput bold)brew update && brew upgrade$(tput sgr0) executed\033[0;32m successfully\033[0m\n\n"
   fi
 }
@@ -27,7 +27,7 @@ brewuy() {
 
   if [[ -n $OUTDATED_FORMULAE || -n $OUTDATED_CASKS ]]; then
     echo -e "\nGoing to run 'brew upgrade'\n"
-    brew upgrade
+    brew upgrade -y
     printf "\n\033[0;34m==>\033[0m $(tput bold)brew update && brew upgrade$(tput sgr0) executed\033[0;32m successfully\033[0m\n"
     
     if [[ -n $OUTDATED_CASKS ]]; then
