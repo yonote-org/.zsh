@@ -259,5 +259,5 @@ Each addon can be customized by editing the respective file in `~/.zsh/`. The mo
 
 ## License
 
-This is a personal configuration collection. Feel free to use and modify as needed.
+Released under the [MIT License](LICENSE) — Copyright (c) 2025-2026 Yosef Yona.
 
