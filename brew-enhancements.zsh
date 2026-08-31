@@ -57,3 +57,16 @@ alias bs="brew search"   # Search for Homebrew packages
 alias bi="brew info"     # Show information about a Homebrew package
 alias bin="brew install" # Install a Homebrew package
 
+# brew-new — list formulae and casks newly added to Homebrew.
+#
+# Invoked by path rather than sourced: brew-new is a standalone executable
+# script that ends in `exit`, so `source`-ing it here would print its report at
+# every shell start and then close the shell.
+#
+#   bn                     what your last `brew update` pulled in (no network)
+#   bn --on 2026-08-31     additions on one day          (GitHub API)
+#   bn --since 2026-08-30  additions since a date        (GitHub API)
+#   bn 7                   additions in the last 7 days  (GitHub API)
+#   bn -h                  full usage
+alias bn="$HOME/.zsh/brew-new"   # New formulae and casks since the last update
+
