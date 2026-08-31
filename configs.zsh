@@ -30,6 +30,9 @@ source ~/.zsh/brew-enhancements.zsh
 # Homebrew autoupdate cask management
 source ~/.zsh/brew-autoupdate.zsh
 
+# New formulae and casks added to Homebrew
+source ~/.zsh/brew-new.zsh
+
 # Local configuration (git-ignored, optional)
 [[ -f ~/.zsh/local-user-config.zsh ]] && source ~/.zsh/local-user-config.zsh
 

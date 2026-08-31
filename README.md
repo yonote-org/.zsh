@@ -40,7 +40,7 @@ This project consists of a main configuration file (`configs.zsh`) that sources 
 - **members.zsh** - macOS group membership utility
 - **uless.zsh** - Color-preserving less integration
 - **brew-enhancements.zsh** - Homebrew aliases and core upgrade utilities
-- **brew-new** - Standalone script listing newly added formulae and casks (aliased to `bn`)
+- **brew-new.zsh** - Lists formulae and casks newly added to Homebrew
 - **brew-autoupdate.zsh** - Homebrew cask autoupdate management (real-version aware)
 - **local-user-config.zsh** - Local user configuration overrides (git-ignored, optional)
 
@@ -157,7 +157,6 @@ Homebrew package manager enhancements:
 - `bs` - `brew search`
 - `bi` - `brew info`
 - `bin` - `brew install`
-- `bn` - `brew-new` (see [brew-new](#brew-new) below)
 
 **Functions:**
 - `brewuy()` - Smart upgrade that:
@@ -176,22 +175,20 @@ bi node      # Show info about Node.js
 bin git      # Install Git
 ```
 
-### brew-new
+### brew-new.zsh
 
-Lists formulae and casks **newly added to Homebrew**, split into two sections. Aliased to `bn` by
-`brew-enhancements.zsh`.
+Lists formulae and casks **newly added to Homebrew**, split into two sections.
 
-Unlike the other addons this is a standalone executable script rather than a sourced function file.
-It is invoked by path (`alias bn="$HOME/.zsh/brew-new"`) and must **not** be `source`d: it ends in
-`exit`, so sourcing it would print its report at every shell start and then close the shell.
+**Aliases:**
+- `bn` - Alias of `brew_new`. Lists newly added formulae and casks.
 
 **Two engines:**
 
 - **local** (default) — what your most recent `brew update` pulled in. No network at all: it
   reproduces Homebrew's own "New Formulae/Casks" report by diffing the name lists in brew's API
-  cache (`$(brew --cache)/api/*_names{,.before}.txt`), which is exactly what `brew update` does
-  internally. Covers only the gap between your last two updates, and has no per-item dates because
-  none exist locally.
+  cache (`$(brew --cache)/api/*_names{,.before}.txt`), which is what `brew update` does internally.
+  Covers only the gap between your last two updates, and has no per-item dates because none exist
+  locally.
 - **online** — any date window. Homebrew no longer clones the core/cask taps locally (API mode), so
   there is no local history to read; this queries the tap history on GitHub, where every addition
   carries a `name 1.2.3 (new formula)` / `(new cask)` line in its commit message.
@@ -223,14 +220,17 @@ bn --from 2026-08-01 --to 2026-08-15
 bn 30 -f                        # formulae added in the last 30 days
 ```
 
-**API usage:** the local default makes **zero** network calls. The online engine costs one GitHub
-search request per 100 matching commits per tap — 2 requests for a week, 4 for a month, 9 for 90
-days. `-f` or `-c` halves that. The authenticated limit is 30 searches/minute (10 unauthenticated),
-so normal use is nowhere near it. A failed or throttled query is reported as `(unavailable)` with a
-non-zero exit rather than as an empty result, so a failure is never mistaken for "nothing new".
+**Notes:**
 
-**Requirements:** `gh` (authenticated) is used when available, otherwise it falls back to
-unauthenticated `curl`; `jq` is required for the online engine. The local engine needs neither.
+- The local default makes **zero** network calls. The online engine costs one GitHub search request
+  per 100 matching commits per tap — 2 requests for a week, 4 for a month, 9 for 90 days; `-f` or
+  `-c` halves that. The authenticated limit is 30 searches/minute (10 unauthenticated).
+- A failed or throttled query is reported as `(unavailable)` with a non-zero return rather than as
+  an empty result, so a failure is never mistaken for "nothing new".
+- Dates are the UTC date on which the addition landed on the tap's default branch, so an item keeps
+  the same date regardless of which window you query.
+- `HOMEBREW_NO_AUTO_UPDATE` is set for the duration of the call only: `brew desc` (used by `-d`) can
+  otherwise trigger an auto-update, which rotates the very name lists the local engine reads.
 
 ### brew-autoupdate.zsh
 
