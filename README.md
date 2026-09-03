@@ -177,7 +177,8 @@ bin git      # Install Git
 
 ### brew-new.zsh
 
-Lists formulae and casks **newly added to Homebrew**, split into two sections.
+Lists formulae and casks **newly added to Homebrew**, in the two-section format of `brew update`'s
+own report (`==> New Formulae` / `==> New Casks`), with a one-line description per item.
 
 **Aliases:**
 - `bn` - Alias of `brew_new`. Lists newly added formulae and casks.
@@ -185,10 +186,10 @@ Lists formulae and casks **newly added to Homebrew**, split into two sections.
 **Two engines:**
 
 - **local** (default) — what your most recent `brew update` pulled in. No network at all: it
-  reproduces Homebrew's own "New Formulae/Casks" report by diffing the name lists in brew's API
-  cache (`$(brew --cache)/api/*_names{,.before}.txt`), which is what `brew update` does internally.
-  Covers only the gap between your last two updates, and has no per-item dates because none exist
-  locally.
+  reproduces Homebrew's own "New Formulae/Casks" report, plus a description per item, by diffing
+  the name lists in brew's API cache (`$(brew --cache)/api/*_names{,.before}.txt`), which is what
+  `brew update` does internally. Covers only the gap between your last two updates, and has no
+  per-item dates because none exist locally.
 - **online** — any date window. Homebrew no longer clones the core/cask taps locally (API mode), so
   there is no local history to read; this queries the tap history on GitHub, where every addition
   carries a `name 1.2.3 (new formula)` / `(new cask)` line in its commit message.
@@ -207,17 +208,17 @@ Any date argument selects the online engine; with no arguments you get the local
 | `--online` | Force the online engine over its 7-day default |
 | `-u` | Force the local engine (the default) |
 | `-f` / `-c` | Formulae only / casks only |
-| `-d` | Also show descriptions |
+| `-d` | Also show descriptions (online engine; the local report always includes them) |
 | `-h` | Full usage |
 
 **Usage Examples:**
 ```bash
 bn                              # since your last brew update (no network)
-bn -d                           # ...with descriptions
 bn --on 2026-08-31              # added on that day
 bn --since 2026-08-30           # added since that date
 bn --from 2026-08-01 --to 2026-08-15
 bn 30 -f                        # formulae added in the last 30 days
+bn 30 -f -d                     # ...with descriptions
 ```
 
 **Notes:**
@@ -229,8 +230,17 @@ bn 30 -f                        # formulae added in the last 30 days
   an empty result, so a failure is never mistaken for "nothing new".
 - Dates are the UTC date on which the addition landed on the tap's default branch, so an item keeps
   the same date regardless of which window you query.
-- `HOMEBREW_NO_AUTO_UPDATE` is set for the duration of the call only: `brew desc` (used by `-d`) can
-  otherwise trigger an auto-update, which rotates the very name lists the local engine reads.
+- `HOMEBREW_NO_AUTO_UPDATE` is set for the duration of the call only: `brew desc` (which supplies the
+  descriptions) can otherwise trigger an auto-update, which rotates the very name lists the local
+  engine reads.
+
+**Standalone install:** `brew-new` is also published as a formula in the
+[yonote-org Homebrew tap](https://github.com/yonote-org/homebrew-tap), for use without the rest of
+this repo — it installs a `brew-new` command plus the sourceable module:
+
+```bash
+brew install yonote-org/tap/brew-new
+```
 
 ### brew-autoupdate.zsh
 
