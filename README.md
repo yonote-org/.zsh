@@ -235,7 +235,8 @@ bin git      # Install Git
 ### brew-new.zsh
 
 Lists formulae and casks **newly added to Homebrew**, in the two-section format of `brew update`'s
-own report (`==> New Formulae` / `==> New Casks`), with a one-line description per item.
+own report (`==> New Formulae` / `==> New Casks`). The local report adds a one-line description per
+item; the online report adds the date and version of each addition.
 
 **Aliases:**
 - `bn` - Alias of `brew_new`. Lists newly added formulae and casks.
@@ -247,11 +248,14 @@ own report (`==> New Formulae` / `==> New Casks`), with a one-line description p
   the name lists in brew's API cache (`$(brew --cache)/api/*_names{,.before}.txt`), which is what
   `brew update` does internally. Covers only the gap between your last two updates, and has no
   per-item dates because none exist locally.
-- **online** — any date window. Homebrew no longer clones the core/cask taps locally (API mode), so
-  `bn` keeps its own commit-only shallow mirror of each tap under `~/.cache/brew-new`
-  (`git clone --filter=tree:0 --shallow-since`: no trees or blobs, a few MB per month of window,
-  refreshed on every run) and reads the additions from its history, where every one carries a
-  `name 1.2.3 (new formula)` / `(new cask)` line.
+- **online** — any date window, read from the taps' own git history. Homebrew no longer clones
+  `homebrew-core` / `homebrew-cask` locally (API mode), so `bn` keeps a mirror of each under
+  `~/.cache/brew-new/`: a bare clone made with `--filter=tree:0` (commit objects only — no trees,
+  no blobs) and `--shallow-since` (history only as far back as the window), refreshed with
+  `git fetch` on every run. Every addition reaches `main` as a commit whose message carries a
+  `name 1.2.3 (new formula)` / `(new cask)` line — on the PR's own commit and, as the PR title, in
+  the body of its merge commit — and `git log --grep` finds them. Nothing else is contacted: no
+  GitHub API, no `gh`, no rate limits, no result caps.
 
 Any date argument selects the online engine; with no arguments you get the local report.
 
@@ -278,22 +282,32 @@ bn --since 2026-08-30           # added since that date
 bn --from 2026-08-01 --to 2026-08-15
 bn 30 -f                        # formulae added in the last 30 days
 bn 30 -f -d                     # ...with descriptions
+BREW_NEW_CACHE=/tmp/bn bn 90    # keep the mirror somewhere else
 ```
 
 **Notes:**
 
-- The local default makes **zero** network calls. The online engine does one `git fetch` per tap
-  (both in parallel, about a second each) and no GitHub API calls, so there are no rate limits or
-  result caps; `-f` / `-c` skips the other tap. The mirror is shallow to the requested window plus
-  two days, deepened or shortened to match each query. `BREW_NEW_CACHE` overrides its location;
-  deleting it is always safe.
-- A failed fetch is reported as `(unavailable)` with a non-zero return rather than as an empty
-  result, so a failure is never mistaken for "nothing new".
-- Dates are the UTC date on which the addition landed on the tap's default branch, so an item keeps
-  the same date regardless of which window you query.
+- The local default makes **zero** network calls. The online engine does one `git fetch` per tap,
+  both in parallel: about 4 s on first use (cloning the mirrors) and 2 s on later runs, for about
+  9 MB on disk for a week of window and 21 MB for a month. `-f` / `-c` skips the other tap.
+- The mirror is shallow to the requested window plus a two-day margin, and each query deepens or
+  shortens it to match, so it never holds more than the widest window you ask for.
+  `BREW_NEW_CACHE` overrides its location (default `${XDG_CACHE_HOME:-~/.cache}/brew-new`);
+  deleting it is always safe — the next run simply clones again.
+- A failed fetch (offline, or a damaged mirror — the message then names the directory to delete)
+  is reported as `(unavailable)` with a non-zero return rather than as an empty result, so a
+  failure is never mistaken for "nothing new".
+- An addition has two marker commits — the PR's own and the merge — whose dates can straddle
+  midnight. `bn` reads two days beyond the window on either side and takes the later of the two,
+  in UTC, as the item's date: the day it landed on the tap's default branch. An item therefore
+  keeps the same date whichever window you query, and never shows under two adjacent `--on` days.
 - `HOMEBREW_NO_AUTO_UPDATE` is set for the duration of the call only: `brew desc` (which supplies the
   descriptions) can otherwise trigger an auto-update, which rotates the very name lists the local
   engine reads.
+
+**Requirements:** `git` (Homebrew's, or the one that comes with the Xcode Command Line Tools) and
+network access, for the online engine only — the local report needs nothing. A missing `git` is
+installed on first use (see `require.zsh`).
 
 ### brew-autoupdate.zsh
 
