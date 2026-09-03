@@ -21,9 +21,10 @@ zsh-addons-setup
 ```
 
 It appends `[[ -f "$(brew --prefix)/share/zsh-addons/configs.zsh" ]] && source "..."  # zsh-addons`
-with the prefix spelled out — add that line by hand instead if you prefer. The formula also
-installs the two tools the addons rely on: `expect` (for `uless.zsh`) and `jq` (for `brew-new`'s
-online engine).
+with the prefix spelled out — add that line by hand instead if you prefer. The formula declares
+the two tools the addons rely on as dependencies — `expect` (for `uless.zsh`) and `jq` (for
+`brew-autoupdate` and `brew-new`'s online fallback) — so `brew install` brings them in and
+`brew uninstall` removes them again unless you had installed them yourself.
 
 To uninstall, take the line out first (Homebrew formulae cannot edit `~/.zshrc` themselves, so
 `brew uninstall` can't do it for you), then remove the formula:
@@ -71,6 +72,7 @@ source ~/.zshrc
 This project consists of a main configuration file (`configs.zsh`) that sources various addon modules:
 
 - **configs.zsh** - Main configuration file that sources all addons
+- **require.zsh** - Installs a Homebrew formula the first time a function needs its command
 - **zsh-addons-setup** - Adds the `~/.zshrc` line that loads the addons, or removes it (`--remove`)
 - **aliases.zsh** - Common shell aliases
 - **git.zsh** - Git integration and prompt enhancements
@@ -94,6 +96,13 @@ The main configuration orchestrator that:
 - Sources all other addon modules
 
 **Prompt Format:** `username ~/workspaces %`
+
+### require.zsh
+
+Defines `_zsh_addons_require <command> <formula>`: returns 0 if the command is available, otherwise
+installs the Homebrew formula that provides it first. Modules call it at the point where a function
+actually needs the tool — nothing is checked or installed when the shell starts — and fall back or
+report if brew is missing or the install fails. Used for `unbuffer` (`expect`) and `jq`.
 
 ### zsh-addons-setup
 
@@ -192,7 +201,8 @@ ls -la | less
 
 The colors will be automatically preserved!
 
-**Requirements:** `expect` formula (installed via Homebrew automatically if missing)
+**Requirements:** `expect` formula — installed via Homebrew the first time a command is piped to
+`less` if missing; without it the command runs as typed
 
 ### brew-enhancements.zsh
 
@@ -371,11 +381,12 @@ are replaced on upgrade). The modular structure allows you to:
 
 - **zsh** - Z shell (default on macOS)
 - **Homebrew** - For `brew-enhancements.zsh` and `uless.zsh`
-- **expect** - Provides `unbuffer` for `uless.zsh`; a dependency of the Homebrew formula, and
-  installed by `uless.zsh` on first load otherwise
+- **expect** - Provides `unbuffer` for `uless.zsh`; a dependency of the Homebrew formula, otherwise
+  installed the first time a command is piped to `less`
 - **Git** - For `git.zsh` functionality
-- **jq** - For `brew-new`'s online engine only (its default local engine needs nothing); a dependency
-  of the Homebrew formula
+- **jq** - For `brew-autoupdate` (`bauc`, `baua`, `bauu`) and `brew-new`'s unauthenticated online
+  fallback (`brew-new`'s default local engine needs nothing). Ships with macOS 15+; a dependency of
+  the Homebrew formula, otherwise installed on first use
 - **gh** - Optional, used by `brew-new` when authenticated; falls back to `curl`
 
 ## License

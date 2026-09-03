@@ -21,6 +21,9 @@
 # Helper Functions
 #==================================================================================
 
+# Lazy Homebrew dependencies (see require.zsh), also when sourced on its own
+(( $+functions[_zsh_addons_require] )) || source "${${(%):-%x}:A:h}/require.zsh"
+
 _brew_new_usage() {
   cat <<'USAGE'
 brew-new — list formulae and casks newly added to Homebrew.
@@ -164,6 +167,11 @@ _brew_new_scan() {
   fi
 
   # Unauthenticated fallback: 10 searches/minute, so page conservatively.
+  # It parses the JSON with jq (gh has jq built in); installed on first use.
+  if ! _zsh_addons_require jq jq; then
+    SCAN_ERR="jq is required for unauthenticated GitHub queries (install jq, or install and log in to gh)"
+    return 1
+  fi
   page=1
   while [ "$page" -le 10 ]; do
     resp=$(curl -sSL -w '\n%{http_code}' -H 'Accept: application/vnd.github+json' \

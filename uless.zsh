@@ -14,11 +14,9 @@
 #
 # Usage: This file is sourced automatically in configs.zsh
 
-# Ensure the unbuffer command (from the 'expect' formula) is available
-if ! command -v unbuffer >/dev/null 2>&1; then
-  echo "Installing 'expect' formula (required for unbuffer command)..."
-  brew install --formula expect
-fi
+# unbuffer comes from the 'expect' formula. It is installed the first time a
+# command is actually piped to less (see require.zsh), not when this file loads.
+(( $+functions[_zsh_addons_require] )) || source "${${(%):-%x}:A:h}/require.zsh"
 
 # Save reference to the current accept-line widget before we override it
 # This allows us to chain with other custom accept-line widgets (like history.zsh)
@@ -34,6 +32,15 @@ custom-accept-line() {
   local pattern='^(.+)\| *less(.*)$'
 
   if [[ $BUFFER =~ $pattern ]]; then
+    # First use installs expect if needed; without unbuffer, run the line as typed.
+    if ! command -v unbuffer >/dev/null 2>&1; then
+      print ""
+      if ! _zsh_addons_require unbuffer expect; then
+        _uless_original_accept_line
+        return
+      fi
+    fi
+
     local cmd="${match[1]}"
     local less_args="${match[2]}"
 

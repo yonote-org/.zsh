@@ -24,6 +24,9 @@ fi
 
 # Manage TYPESET_SILENT option to prevent xtrace spam for local variable declarations
 # This function modifies the shell option directly and stores state in a variable
+# Lazy Homebrew dependencies (see require.zsh), also when sourced on its own
+(( $+functions[_zsh_addons_require] )) || source "${${(%):-%x}:A:h}/require.zsh"
+
 _brew_typeset_silent_on() {
   if setopt 2>/dev/null | grep -qx 'typeset_silent'; then
     # TYPESET_SILENT is already on, return 1 to indicate we didn't change it
@@ -126,6 +129,9 @@ brew_autoupdate_check() {
     _brew_format_message "$BREW_COLOR_YELLOW" "No casks to check"
     return 0
   fi
+
+  # jq parses brew's JSON below; installed on first use if missing.
+  _zsh_addons_require jq jq || return 1
 
   # Manage TYPESET_SILENT option
   _brew_typeset_silent_on
@@ -249,6 +255,9 @@ brew_autoupdate_add() {
   # Create directory and file if they don't exist
   [[ ! -d "$BREW_LOCAL_CONFIG_DIR" ]] && mkdir -p "$BREW_LOCAL_CONFIG_DIR"
   [[ ! -f "$BREW_AUTOUPDATE_FILE" ]] && touch "$BREW_AUTOUPDATE_FILE"
+
+  # jq parses brew's JSON below; installed on first use if missing.
+  _zsh_addons_require jq jq || return 1
 
   # Manage TYPESET_SILENT option (suppress xtrace noise from local assignments)
   _brew_typeset_silent_on
@@ -416,6 +425,9 @@ brew_autoupdate_update() {
     _brew_format_message "$BREW_COLOR_YELLOW" "No casks to update"
     return 0
   fi
+
+  # jq parses brew's JSON below; installed on first use if missing.
+  _zsh_addons_require jq jq || return 1
 
   # Manage TYPESET_SILENT option
   _brew_typeset_silent_on

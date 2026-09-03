@@ -12,6 +12,9 @@ setopt INTERACTIVE_COMMENTS
 # installed: a ~/.zsh clone or Homebrew's share/zsh-addons.
 _zsh_addons_dir="${${(%):-%x}:A:h}"
 
+# Installs a Homebrew formula the first time a function needs its command
+source "$_zsh_addons_dir/require.zsh"
+
 source "$_zsh_addons_dir/aliases.zsh"
 source "$_zsh_addons_dir/git.zsh"
 
