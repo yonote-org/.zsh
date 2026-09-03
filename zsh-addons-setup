@@ -1,0 +1,133 @@
+#!/usr/bin/env zsh
+# zsh-addons-setup — add or remove the ~/.zshrc line that loads the addons.
+#
+# Usage: zsh-addons-setup            append the guarded source line (idempotent)
+#        zsh-addons-setup --remove   delete that line again
+#
+# The rc file is ${ZDOTDIR:-$HOME}/.zshrc. From a clone the line points at the
+# configs.zsh next to this script; the Homebrew formula rewrites configs_default
+# below to its share directory, which stays the same across upgrades.
+
+emulate -L zsh
+setopt extended_glob
+
+configs_default="${0:A:h}/configs.zsh"
+
+usage() {
+  cat <<'USAGE'
+zsh-addons-setup — add or remove the ~/.zshrc line that loads the zsh addons.
+
+Usage: zsh-addons-setup [--remove]
+  (no option)  append `[[ -f CONFIGS ]] && source CONFIGS` to ~/.zshrc, unless
+               a line loading CONFIGS is already there
+  --remove     delete the line(s) loading CONFIGS from ~/.zshrc
+  -h, --help   show this help
+
+CONFIGS is this installation's configs.zsh. The rc file honours ZDOTDIR.
+USAGE
+}
+
+mode=add
+for arg in "$@"; do
+  case "$arg" in
+    --remove)  mode=remove ;;
+    -h|--help) usage; exit 0 ;;
+    *)         echo "zsh-addons-setup: unknown option '$arg'" >&2; usage >&2; exit 1 ;;
+  esac
+done
+
+configs="$configs_default"
+rc="${ZDOTDIR:-$HOME}/.zshrc"
+
+# If a line loads some configs.zsh — `source PATH` or `. PATH`, optionally
+# behind a `[[ -f PATH ]] &&` guard and before a comment, PATH quoted or not —
+# set REPLY to that path with ~, $HOME and $(brew --prefix) expanded and
+# return 0.
+loaded_configs() {
+  local l="$1" target
+  l="${l##[[:space:]]#}"
+  l="${l%%[[:space:]]#\#*}"
+  l="${l%%[[:space:]]#}"
+  [[ "$l" == \[\[\ -f\ *\ \]\]\ \&\&\ * ]] && l="${l#*\]\]\ \&\&\ }"
+  l="${l##[[:space:]]#}"
+  case "$l" in
+    source\ *) target="${l#source }" ;;
+    .\ *)      target="${l#. }" ;;
+    *)         return 1 ;;
+  esac
+  target="${target##[[:space:]]#}"
+  target="${target%%[[:space:]]#}"
+  [[ "$target" == [\"\']*[\"\'] ]] && target="${target[2,-2]}"
+  case "$target" in
+    "~/"*)                 target="$HOME/${target#\~/}" ;;
+    "\$HOME/"*)            target="$HOME/${target#\$HOME/}" ;;
+    "\${HOME}/"*)          target="$HOME/${target#\$\{HOME\}/}" ;;
+    "\$(brew --prefix)/"*) target="$(brew --prefix 2>/dev/null)/${target#\$\(brew --prefix\)/}" ;;
+  esac
+  [[ "${target:t}" == configs.zsh ]] || return 1
+  REPLY="$target"
+}
+
+found=()   # "n:line" — lines loading this installation's configs.zsh
+others=()  # "n:line" — lines loading some other configs.zsh
+if [[ -f "$rc" ]]; then
+  n=0
+  while IFS= read -r l || [[ -n "$l" ]]; do
+    n=$((n + 1))
+    loaded_configs "$l" || continue
+    if [[ "$REPLY" == "$configs" || "${REPLY:A}" == "${configs:A}" ]]; then
+      found+=("$n:$l")
+    else
+      others+=("$n:$l")
+    fi
+  done <"$rc"
+fi
+
+# Spell a path under $HOME as $HOME/..., so the rc file stays portable.
+display="$configs"
+[[ "$configs" == "$HOME/"* ]] && display="\$HOME${configs#$HOME}"
+line="[[ -f \"$display\" ]] && source \"$display\"  # zsh-addons"
+
+show() { local f; for f in "$@"; do printf '  %s: %s\n' "${f%%:*}" "${f#*:}"; done; }
+
+case "$mode" in
+  add)
+    if [[ ! -f "$configs" ]]; then
+      echo "zsh-addons-setup: $configs not found" >&2
+      exit 1
+    fi
+    if (( ${#found} )); then
+      echo "Already set up: $rc loads $configs"
+      show "${found[@]}"
+    else
+      [[ -e "$rc" ]] || : >"$rc"
+      # start on a fresh line even if the file lacks a final newline
+      [[ -s "$rc" && -n "$(tail -c1 "$rc")" ]] && echo >>"$rc"
+      printf '%s\n' "$line" >>"$rc"
+      echo "Added to $rc:"
+      echo "  $line"
+      echo "New shells pick it up; for this one, run: source $rc"
+    fi
+    if (( ${#others} )); then
+      echo "Note: $rc also loads another configs.zsh — loading both defines everything twice:"
+      show "${others[@]}"
+    fi
+    ;;
+  remove)
+    if (( ${#found} == 0 )); then
+      echo "Nothing to remove: no line in $rc loads $configs"
+      exit 0
+    fi
+    tmp=$(mktemp "${rc}.XXXXXX") || exit 1
+    skip="${(j:,:)${found[@]%%:*}}"
+    if awk -v skip="$skip" 'BEGIN { split(skip, a, ","); for (i in a) s[a[i]] = 1 } !(NR in s)' "$rc" >"$tmp"; then
+      cat "$tmp" >"$rc"  # write through, so a symlinked ~/.zshrc stays a symlink
+      rm -f "$tmp"
+    else
+      rm -f "$tmp"
+      exit 1
+    fi
+    echo "Removed from $rc:"
+    show "${found[@]}"
+    ;;
+esac

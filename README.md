@@ -13,24 +13,28 @@ The addons are published as the `zsh-addons` formula in the
 brew install yonote-org/tap/zsh-addons
 ```
 
-Then add the following line to your `~/.zshrc` file (`brew install` prints it with the exact path
-for your Homebrew prefix):
+Then let the bundled setup command add the one line that loads the addons to your `~/.zshrc`
+(it honours `ZDOTDIR` and is safe to re-run):
 
 ```bash
-[[ -f "$(brew --prefix)/share/zsh-addons/configs.zsh" ]] && source "$(brew --prefix)/share/zsh-addons/configs.zsh"
+zsh-addons-setup
 ```
 
-The formula also installs the two tools the addons rely on: `expect` (for `uless.zsh`) and `jq`
-(for `brew-new`'s online engine).
+It appends `[[ -f "$(brew --prefix)/share/zsh-addons/configs.zsh" ]] && source "..."  # zsh-addons`
+with the prefix spelled out — add that line by hand instead if you prefer. The formula also
+installs the two tools the addons rely on: `expect` (for `uless.zsh`) and `jq` (for `brew-new`'s
+online engine).
 
-To uninstall:
+To uninstall, take the line out first (Homebrew formulae cannot edit `~/.zshrc` themselves, so
+`brew uninstall` can't do it for you), then remove the formula:
 
 ```bash
+zsh-addons-setup --remove
 brew uninstall zsh-addons
 ```
 
-and remove the line from `~/.zshrc` — the `[[ -f ... ]]` guard keeps the shell quiet in the
-meantime. `brew untap yonote-org/tap` removes the tap itself if nothing else from it is installed.
+If you uninstall first, the `[[ -f ... ]]` guard keeps the shell quiet until you delete the line by
+hand. `brew untap yonote-org/tap` removes the tap itself if nothing else from it is installed.
 
 ### From a clone
 
@@ -40,16 +44,17 @@ Clone the repo in your home directory (~):
 git clone https://github.com/yonote-org/.zsh.git ~/.zsh
 ```
 
-Then simply add the following line to your `~/.zshrc` file:
+Then add the line that loads the addons to your `~/.zshrc`, either with the bundled setup command
+(creates the file if needed, safe to re-run; `~/.zsh/zsh-addons-setup --remove` takes it out again):
+
+```bash
+~/.zsh/zsh-addons-setup
+```
+
+or by hand:
 
 ```bash
 source ~/.zsh/configs.zsh
-```
-
-If the file doesn't exist in your home directory, you can add it with:
-
-```bash
-echo "source ~/.zsh/configs.zsh" >> ~/.zshrc
 ```
 
 `configs.zsh` finds the other modules relative to its own location, so the clone can live
@@ -66,6 +71,7 @@ source ~/.zshrc
 This project consists of a main configuration file (`configs.zsh`) that sources various addon modules:
 
 - **configs.zsh** - Main configuration file that sources all addons
+- **zsh-addons-setup** - Adds the `~/.zshrc` line that loads the addons, or removes it (`--remove`)
 - **aliases.zsh** - Common shell aliases
 - **git.zsh** - Git integration and prompt enhancements
 - **history.zsh** - Advanced history search widgets
@@ -88,6 +94,14 @@ The main configuration orchestrator that:
 - Sources all other addon modules
 
 **Prompt Format:** `username ~/workspaces %`
+
+### zsh-addons-setup
+
+Command that adds the line loading `configs.zsh` to `${ZDOTDIR:-$HOME}/.zshrc`, or removes it
+again with `--remove`. It recognises the line in any of the usual spellings (`source` or `.`, with
+or without the `[[ -f ... ]]` guard, `~` or `$HOME`), so re-running is a no-op, points out lines
+that load a *different* `configs.zsh`, and edits the file in place so a symlinked `~/.zshrc` stays
+a symlink. The Homebrew formula installs it to `bin`, pointed at its own `share/zsh-addons`.
 
 ### aliases.zsh
 
