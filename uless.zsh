@@ -14,8 +14,8 @@
 #
 # Usage: This file is sourced automatically in configs.zsh
 
-# Ensure 'expect' formula is installed (provides the unbuffer command)
-if ! brew list --formula | grep -q expect; then
+# Ensure the unbuffer command (from the 'expect' formula) is available
+if ! command -v unbuffer >/dev/null 2>&1; then
   echo "Installing 'expect' formula (required for unbuffer command)..."
   brew install --formula expect
 fi

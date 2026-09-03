@@ -4,7 +4,37 @@ A collection of modular zsh configuration addons that enhance your shell experie
 
 ## Installation
 
-To install these configurations, clone the repo in your home directory (~):
+### With Homebrew
+
+The addons are published as the `zsh-addons` formula in the
+[yonote-org Homebrew tap](https://github.com/yonote-org/homebrew-tap):
+
+```bash
+brew install yonote-org/tap/zsh-addons
+```
+
+Then add the following line to your `~/.zshrc` file (`brew install` prints it with the exact path
+for your Homebrew prefix):
+
+```bash
+[[ -f "$(brew --prefix)/share/zsh-addons/configs.zsh" ]] && source "$(brew --prefix)/share/zsh-addons/configs.zsh"
+```
+
+The formula also installs the two tools the addons rely on: `expect` (for `uless.zsh`) and `jq`
+(for `brew-new`'s online engine).
+
+To uninstall:
+
+```bash
+brew uninstall zsh-addons
+```
+
+and remove the line from `~/.zshrc` — the `[[ -f ... ]]` guard keeps the shell quiet in the
+meantime. `brew untap yonote-org/tap` removes the tap itself if nothing else from it is installed.
+
+### From a clone
+
+Clone the repo in your home directory (~):
 
 ```bash
 git clone https://github.com/yonote-org/.zsh.git ~/.zsh
@@ -21,6 +51,9 @@ If the file doesn't exist in your home directory, you can add it with:
 ```bash
 echo "source ~/.zsh/configs.zsh" >> ~/.zshrc
 ```
+
+`configs.zsh` finds the other modules relative to its own location, so the clone can live
+anywhere; `~/.zsh` is just the conventional place.
 
 After adding the line, reload your shell configuration:
 
@@ -234,14 +267,6 @@ bn 30 -f -d                     # ...with descriptions
   descriptions) can otherwise trigger an auto-update, which rotates the very name lists the local
   engine reads.
 
-**Standalone install:** `brew-new` is also published as a formula in the
-[yonote-org Homebrew tap](https://github.com/yonote-org/homebrew-tap), for use without the rest of
-this repo — it installs a `brew-new` command plus the sourceable module:
-
-```bash
-brew install yonote-org/tap/brew-new
-```
-
 ### brew-autoupdate.zsh
 
 Homebrew cask autoupdate management (for casks with `auto_updates true` that are not handled by `brew update` / `brew upgrade`):
@@ -301,6 +326,8 @@ Local configuration file for machine-specific or user-specific settings that sho
 
 - **Git-ignored:** This file is excluded from version control via `.gitignore`
 - **Optional:** Sourced only if it exists — no warning or error if absent
+- **Fixed location:** Always read from `~/.zsh/local-user-config.zsh`, also with a Homebrew install
+  (create the directory if needed) — files under Homebrew's `share/` are replaced on upgrade
 - **Purpose:** Place any personal aliases, environment variables, or overrides here
 
 **Example content:**
@@ -317,7 +344,9 @@ touch ~/.zsh/local-user-config.zsh
 
 ## Customization
 
-Each addon can be customized by editing the respective file in `~/.zsh/`. The modular structure allows you to:
+Each addon can be customized by editing the respective file in `~/.zsh/` (with a Homebrew install,
+put overrides in `local-user-config.zsh` instead — files under `$(brew --prefix)/share/zsh-addons`
+are replaced on upgrade). The modular structure allows you to:
 
 - Enable/disable addons by commenting out lines in `configs.zsh`
 - Modify behavior by editing individual addon files
@@ -328,9 +357,11 @@ Each addon can be customized by editing the respective file in `~/.zsh/`. The mo
 
 - **zsh** - Z shell (default on macOS)
 - **Homebrew** - For `brew-enhancements.zsh` and `uless.zsh`
-- **expect** - Automatically installed by `uless.zsh` if missing
+- **expect** - Provides `unbuffer` for `uless.zsh`; a dependency of the Homebrew formula, and
+  installed by `uless.zsh` on first load otherwise
 - **Git** - For `git.zsh` functionality
-- **jq** - For `brew-new`'s online engine only (its default local engine needs nothing)
+- **jq** - For `brew-new`'s online engine only (its default local engine needs nothing); a dependency
+  of the Homebrew formula
 - **gh** - Optional, used by `brew-new` when authenticated; falls back to `curl`
 
 ## License

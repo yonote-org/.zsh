@@ -8,31 +8,40 @@ PROMPT='%n %F{cyan}%~%f %%%f '
 
 setopt INTERACTIVE_COMMENTS
 
-source ~/.zsh/aliases.zsh
-source ~/.zsh/git.zsh
+# Directory this file lives in, so the modules are found wherever the repo is
+# installed: a ~/.zsh clone or Homebrew's share/zsh-addons.
+_zsh_addons_dir="${${(%):-%x}:A:h}"
+
+source "$_zsh_addons_dir/aliases.zsh"
+source "$_zsh_addons_dir/git.zsh"
 
 # Custom widgets for pattern search
-source ~/.zsh/history.zsh
+source "$_zsh_addons_dir/history.zsh"
 
 # Function to display the confirmation prompt
-source ~/.zsh/confirm.zsh
+source "$_zsh_addons_dir/confirm.zsh"
 
 # Function to list members of a group
-source ~/.zsh/members.zsh
+source "$_zsh_addons_dir/members.zsh"
 
 # override the accept-line function to add unbuffer + less auto-rewrite
 # to preserve colors when piping to less
-source ~/.zsh/uless.zsh
+source "$_zsh_addons_dir/uless.zsh"
 
 # Brew enhancements (aliases and functions)
-source ~/.zsh/brew-enhancements.zsh
+source "$_zsh_addons_dir/brew-enhancements.zsh"
 
 # Homebrew autoupdate cask management
-source ~/.zsh/brew-autoupdate.zsh
+source "$_zsh_addons_dir/brew-autoupdate.zsh"
 
 # New formulae and casks added to Homebrew
-source ~/.zsh/brew-new.zsh
+source "$_zsh_addons_dir/brew-new.zsh"
 
-# Local configuration (git-ignored, optional)
-[[ -f ~/.zsh/local-user-config.zsh ]] && source ~/.zsh/local-user-config.zsh
+unset _zsh_addons_dir
+
+# Local configuration (git-ignored, optional). Always read from ~/.zsh, so it
+# survives Homebrew upgrades, which replace everything under share/.
+if [[ -f ~/.zsh/local-user-config.zsh ]]; then
+  source ~/.zsh/local-user-config.zsh
+fi
 
