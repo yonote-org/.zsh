@@ -46,10 +46,21 @@ Usage: bn [-d] [-f|-c] [-u] [--online] [--on DATE] [--since DATE]
   days          how far back to look (default: 7); used only when --from is
                 absent, counting back from --to when given, else from today
 
+Engines:
+  local   (no date argument) what your last `brew update` pulled in, with a
+          description per item. No network: diffs the name lists in brew's
+          API cache, as `brew update` itself does. No per-item dates.
+  online  (any date argument) any window, with date and version per item,
+          read from the taps' git history. Keeps a commit-only shallow mirror
+          of homebrew-core and homebrew-cask under BREW_NEW_CACHE (default
+          ~/.cache/brew-new; deleting it is always safe), refreshed by one
+          git fetch per tap on every run: about 4 s on first use, 2 s after,
+          a few MB on disk. No GitHub API, so no rate limits. Needs git.
+          Dates are the UTC day the addition landed on the tap's main branch.
+
 Returns non-zero if a section could not be retrieved, so a failed fetch is
-never reported as an empty one. The online engine keeps a commit-only mirror
-of each tap under BREW_NEW_CACHE (default ~/.cache/brew-new); deleting it is
-always safe. Set BREW_NEW_DEBUG=1 to log commit lines skipped as ambiguous.
+never reported as an empty one. Set BREW_NEW_DEBUG=1 to log commit lines
+skipped as ambiguous.
 USAGE
 }
 
