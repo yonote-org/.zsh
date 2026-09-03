@@ -103,6 +103,9 @@ Defines `_zsh_addons_require <command> <formula>`: returns 0 if the command is a
 installs the Homebrew formula that provides it first. Modules call it at the point where a function
 actually needs the tool — nothing is checked or installed when the shell starts — and fall back or
 report if brew is missing or the install fails. Used for `git`, `unbuffer` (`expect`) and `jq`.
+When the addons run from the Homebrew formula, those are declared dependencies that came with it,
+so a missing one is reported as a warning before being reinstalled; if the formula is present but
+the command still isn't found, it points at `$(brew --prefix)/bin` not being on `PATH`.
 
 ### zsh-addons-setup
 
