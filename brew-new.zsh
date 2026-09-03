@@ -10,9 +10,13 @@
 #                    brew's API cache. Covers only the gap between your last two
 #                    updates, and has no dates.
 #   online           Any date window. Homebrew's core/cask taps are not cloned
-#                    locally (API mode), so this reads the tap history from
-#                    GitHub, where every addition carries a line of the form
-#                    "name 1.2.3 (new formula)" / "(new cask)".
+#                    locally (API mode), so this keeps a commit-only shallow
+#                    mirror of each tap under ~/.cache/brew-new (no trees or
+#                    blobs: a few MB per month of window) and reads the
+#                    additions from its history, where every one carries a
+#                    line of the form "name 1.2.3 (new formula)" / "(new cask)".
+#                    One git fetch per tap; no GitHub API, so no rate limits or
+#                    result caps.
 #
 # Any date argument (--on, --since, --from, --to, or a day count) selects the
 # online engine; with no arguments you get the local report.
@@ -42,9 +46,10 @@ Usage: bn [-d] [-f|-c] [-u] [--online] [--on DATE] [--since DATE]
   days          how far back to look (default: 7); used only when --from is
                 absent, counting back from --to when given, else from today
 
-Returns non-zero if a section could not be retrieved, so a failed query is
-never reported as an empty one. Set BREW_NEW_DEBUG=1 to log commit lines that
-were skipped as ambiguous.
+Returns non-zero if a section could not be retrieved, so a failed fetch is
+never reported as an empty one. The online engine keeps a commit-only mirror
+of each tap under BREW_NEW_CACHE (default ~/.cache/brew-new); deleting it is
+always safe. Set BREW_NEW_DEBUG=1 to log commit lines skipped as ambiguous.
 USAGE
 }
 
@@ -93,113 +98,52 @@ _brew_new_file_mtime() {
     || stat -c '%y' "$1" 2>/dev/null | cut -c1-16
 }
 
-# Turn an API error into an actionable message.
-_brew_new_explain_err() {
-  local msg="$1" reset now
-  # GitHub has two throttles. The primary search limit (30/min) is reported by
-  # the rate_limit endpoint; the secondary burst limit is not, and its counter
-  # can still read plenty of quota while requests are being refused. Don't
-  # quote a countdown that does not apply to the block actually in force.
-  if printf '%s' "$msg" | grep -qi 'secondary rate limit'; then
-    printf 'GitHub secondary (burst) rate limit hit — wait a minute before retrying'
-  elif printf '%s' "$msg" | grep -qi 'rate limit'; then
-    reset=$(gh api rate_limit --jq '.resources.search.reset' 2>/dev/null)
-    now=$(date -u +%s)
-    if [ -n "$reset" ] && [ "$reset" -gt "$now" ] 2>/dev/null; then
-      printf 'GitHub search rate limit exceeded (30/min) — retry in %ss' "$((reset - now))"
-    else
-      printf 'GitHub search rate limit exceeded (30/min) — retry in a moment'
-    fi
+# Fetch, or refresh, the commit-only shallow mirror of one tap under
+# $BREW_NEW_CACHE: --filter=tree:0 skips every tree and blob, --shallow-since
+# bounds the history to the window (git deepens or shortens an existing mirror
+# to match). Meant to run in the background: on failure it leaves the reason
+# in sync.err.$kind and touches sync.failed.$kind for _brew_new_section.
+_brew_new_sync() {
+  local repo="$1" kind="$2" dir="$BREW_NEW_CACHE/$1.git" branch
+  local errf="$BREW_NEW_TMPDIR/sync.err.$2"
+  if [ -d "$dir" ]; then
+    # A bare --single-branch clone stores no fetch refspec, so name the branch.
+    branch=$(git -C "$dir" symbolic-ref --short HEAD 2>>"$errf") \
+      && git -C "$dir" fetch -q --shallow-since="$QFROM" origin \
+           "+refs/heads/${branch}:refs/heads/${branch}" 2>>"$errf" \
+      && return 0
+    printf '(delete %s to start over)\n' "$dir" >>"$errf"
   else
-    printf '%s' "$(printf '%s' "$msg" | grep -v '^[[:space:]]*$' | head -2 | tr '\n' ' ')"
+    mkdir -p "$BREW_NEW_CACHE" 2>>"$errf" \
+      && git clone -q --bare --filter=tree:0 --shallow-since="$QFROM" --single-branch \
+           "https://github.com/Homebrew/$repo.git" "$dir" 2>>"$errf" \
+      && return 0
+    rm -rf "$dir"  # never leave a half clone behind
   fi
+  : >"$BREW_NEW_TMPDIR/sync.failed.$kind"
+  return 1
 }
 
-# Ask GitHub's commit search for additions in one tap, and emit
-# "date<TAB>line" where line is the "(new X)" marker line with the marker
-# stripped. The marker is the subject on squashed commits and sits in the body
-# on merge commits, so we search the whole message for it.
-# Returns 1 and sets SCAN_ERR if the query failed — never an empty result.
-_brew_new_scan() {
-  local repo="$1" kind="$2" query filter errf outf gh_rc page resp code payload n
-  SCAN_ERR=""
-  query="repo:Homebrew/$repo \"(new $kind)\" committer-date:>=$QFROM"
-  [ -n "$QTO" ] && query="$query committer-date:<=$QTO"
-  # GitHub returns committer dates in the committer's own offset, so the
-  # leading 10 characters are their local date, not the UTC one. Normalise.
-  filter='def utcdate:
-      capture("^(?<t>[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2})(\\.[0-9]+)?(?<z>Z|[+-][0-9]{2}:[0-9]{2})$") as $m
-      | (($m.t + "Z") | fromdateiso8601) as $e
-      | (if $m.z == "Z" then 0
-         else (($m.z[1:3] | tonumber) * 3600 + ($m.z[4:6] | tonumber) * 60) as $sec
-              | (if ($m.z[0:1] == "-") then -$sec else $sec end)
-         end) as $off
-      | (($e - $off) | todate)[0:10];
-    (if .incomplete_results then "@@INCOMPLETE@@" else empty end),
-    (.items[]
-    | {d: .commit.committer.date,
-       m: (.commit.message | split("\n")
-            | map(select(test("\\(new '"$kind"'\\)")) | sub("^[[:space:]]+"; ""))
-            | first // "")}
-    | select(.m != "" and (.m | test("^Revert") | not))
-    | [(.d | utcdate), (.m | sub(" *\\(new '"$kind"'\\).*$"; ""))]
-    | @tsv)'
-  errf="$BREW_NEW_TMPDIR/err.$kind"
-
-  if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
-    outf="$BREW_NEW_TMPDIR/out.$kind"
-    gh api -X GET search/commits -f q="$query" -f per_page=100 \
-      --paginate --jq "$filter" >"$outf" 2>"$errf"
-    gh_rc=$?
-    if [ "$gh_rc" -ne 0 ]; then
-      SCAN_ERR=$(_brew_new_explain_err "$(cat "$errf")")
-      return 1
-    fi
-    # HTTP 200 with incomplete_results means the search index timed out and the
-    # page is partial or empty. Treating that as a real answer would silently
-    # under-report, so fail instead.
-    if grep -qx '@@INCOMPLETE@@' "$outf"; then
-      SCAN_ERR="GitHub search returned incomplete results (index timeout) — retry"
-      return 1
-    fi
-    cat "$outf"
-    return 0
-  fi
-
-  # Unauthenticated fallback: 10 searches/minute, so page conservatively.
-  # It parses the JSON with jq (gh has jq built in); installed on first use.
-  if ! _zsh_addons_require jq jq; then
-    SCAN_ERR="jq is required for unauthenticated GitHub queries (install jq, or install and log in to gh)"
-    return 1
-  fi
-  page=1
-  while [ "$page" -le 10 ]; do
-    resp=$(curl -sSL -w '\n%{http_code}' -H 'Accept: application/vnd.github+json' \
-      --data-urlencode "q=$query" --get \
-      "https://api.github.com/search/commits?per_page=100&page=$page" 2>"$errf")
-    if [ -z "$resp" ]; then
-      SCAN_ERR=$(_brew_new_explain_err "$(cat "$errf")")
-      [ -n "$SCAN_ERR" ] || SCAN_ERR="network request failed"
-      return 1
-    fi
-    code=${resp##*$'\n'}
-    payload=${resp%$'\n'*}
-    if [ "$code" != "200" ]; then
-      SCAN_ERR=$(_brew_new_explain_err "$(printf '%s' "$payload" | jq -r '.message? // empty' 2>/dev/null)")
-      [ -n "$SCAN_ERR" ] || SCAN_ERR="GitHub API returned HTTP $code"
-      return 1
-    fi
-    if [ "$(printf '%s' "$payload" | jq -r '.incomplete_results' 2>/dev/null)" = "true" ]; then
-      SCAN_ERR="GitHub search returned incomplete results (index timeout) — retry"
-      return 1
-    fi
-    n=$(printf '%s' "$payload" | jq '.items | length' 2>/dev/null) || n=0
-    [ "$n" -gt 0 ] 2>/dev/null || break
-    printf '%s' "$payload" | jq -r "$filter"
-    [ "$n" -lt 100 ] && break
-    page=$((page + 1))
-  done
-  return 0
+# NUL-separated "date<TAB>message" records from git log -> "date<TAB>line",
+# where line is the first "(new X)" marker line with the marker stripped. The
+# marker is the subject of the PR's own commit and sits in the body of the
+# merge commit (the PR title); a revert quotes it, and is skipped.
+_brew_new_markers() {
+  tr '\0' '\036' | awk -v RS=$'\036' -v kind="$1" '
+    $0 == "" { next }
+    {
+      date = substr($0, 1, index($0, "\t") - 1)
+      n = split(substr($0, index($0, "\t") + 1), lines, "\n")
+      for (i = 1; i <= n; i++) {
+        line = lines[i]
+        if (index(line, "(new " kind ")") == 0) continue
+        sub(/^[ \t]+/, "", line)
+        if (line ~ /^Revert/) break
+        sub(" *\\(new " kind "\\).*$", "", line)
+        print date "\t" line
+        break
+      }
+    }'
 }
 
 # Keep only clean "name version" additions. Combined commits such as
@@ -246,28 +190,31 @@ _brew_new_render() {
 }
 
 _brew_new_section() {
-  local title="$1" repo="$2" kind="$3" kind_flag="$4" raw body count
-  raw="$BREW_NEW_TMPDIR/raw.$kind"
-  if ! _brew_new_scan "$repo" "$kind" >"$raw"; then
-    printf '==> New %s (unavailable)\n  %s\n' "$title" "$SCAN_ERR"
+  local title="$1" repo="$2" kind="$3" kind_flag="$4" dir errf body
+  local -a range
+  dir="$BREW_NEW_CACHE/$repo.git"
+  errf="$BREW_NEW_TMPDIR/sync.err.$kind"
+  if [ -e "$BREW_NEW_TMPDIR/sync.failed.$kind" ]; then
+    printf '==> New %s (unavailable)\n' "$title"
+    { grep -v '^[[:space:]]*$' "$errf" 2>/dev/null \
+        || echo "could not fetch https://github.com/Homebrew/$repo"; } | tail -3 | sed 's/^/  /'
     FAILED=1
     return 0
   fi
-  body=$(_brew_new_parse <"$raw" | _brew_new_resolve | _brew_new_render "$kind_flag")
-  count=$(printf '%s' "$body" | grep -c .)
+  # Dates are UTC: bound the log in UTC and print UTC dates. Every commit in the
+  # mirror is reachable from the default branch, so the marker can be matched
+  # anywhere; homebrew-cask's merges are not all on the first-parent chain.
+  range=(--since="$QFROM 00:00 +0000")
+  [ -n "$QTO" ] && range+=(--until="$QTO 23:59:59 +0000")
+  body=$(TZ=UTC git -C "$dir" log -z "${range[@]}" \
+           --date=format-local:%Y-%m-%d --format='%cd%x09%B' --grep="(new $kind)" 2>"$errf" \
+         | _brew_new_markers "$kind" | _brew_new_parse | _brew_new_resolve | _brew_new_render "$kind_flag") \
+    || { printf '==> New %s (unavailable)\n  %s\n' "$title" "$(tail -1 "$errf")"; FAILED=1; return 0; }
   printf '==> New %s\n' "$title"
   printf '%s\n' "${body:-  none}"
-  # GitHub's search API caps a query at 1000 results.
-  [ "$count" -ge 990 ] && printf '  (note: hit GitHub search result cap — narrow the window)\n'
   return 0
 }
 
-# Reproduce brew's own new-formula/cask report with no network at all.
-# brew (cmd/update_report/reporter.rb) diffs two plain name lists in its API
-# cache and treats every added line as a new package; cmd/update.sh rotates
-# *_names.txt to *_names.before.txt on each update. A set difference is used
-# here rather than `comm`: the lists are not in `sort` order (locale
-# collation), so `comm` silently drops entries.
 # Names on stdin -> "name: description" lines as `brew desc` prints them, in
 # input order. Casks come out as "token: (Display Name) desc"; the display name
 # is dropped so both sections read alike.
@@ -319,7 +266,8 @@ _brew_new_section_local() {
 _brew_new_run() {
   local DAYS=7 WANT_DESC=0 WANT_FORMULA=1 WANT_CASK=1
   local FROM="" TO="" ON="" MODE="" EXPLICIT_DAYS=0 EXPLICIT_FROM=1
-  local SCAN_ERR="" FAILED=0 DATE_ARGS=0 QFROM="" QTO="" API_CACHE=""
+  local FAILED=0 DATE_ARGS=0 QFROM="" QTO="" API_CACHE=""
+  local BREW_NEW_CACHE="${BREW_NEW_CACHE:-${XDG_CACHE_HOME:-$HOME/.cache}/brew-new}"
 
   while [ $# -gt 0 ]; do
     case "$1" in
@@ -407,14 +355,17 @@ _brew_new_run() {
     return 1
   fi
 
-  # An addition has two marker commits (the squashed one and the merge) whose
-  # dates can straddle midnight, so query wider than asked and resolve each
-  # item's canonical date afterwards. Without this the same item can surface
-  # under two adjacent --on days with a different date each time.
+  # An addition has two marker commits (the PR's own and the merge) whose dates
+  # can straddle midnight, so read wider than asked and resolve each item's
+  # canonical date afterwards; otherwise the same item could surface under two
+  # adjacent --on days with a different date each time. The same margin keeps
+  # the shallow boundary (which git cuts in local time) clear of the window.
   QFROM=$(_brew_new_days_before 2 "$FROM") || { _brew_new_die "cannot compute query start date"; return 1; }
   if [ -n "$TO" ]; then
     QTO=$(_brew_new_days_after 2 "$TO") || { _brew_new_die "cannot compute query end date"; return 1; }
   fi
+
+  _zsh_addons_require git git || { _brew_new_die "git is required for the online engine"; return 1; }
 
   if [ -n "$ON" ]; then
     printf 'New in Homebrew on %s\n' "$ON"
@@ -425,6 +376,11 @@ _brew_new_run() {
   else
     printf 'New in Homebrew since %s (last %s day(s))\n' "$FROM" "$DAYS"
   fi
+  # Refresh the mirrors concurrently; each reports failure through a marker file.
+  local -a pids=()
+  if [ "$WANT_FORMULA" = 1 ]; then _brew_new_sync homebrew-core formula & pids+=($!); fi
+  if [ "$WANT_CASK" = 1 ];    then _brew_new_sync homebrew-cask cask    & pids+=($!); fi
+  wait "${pids[@]}"
   [ "$WANT_FORMULA" = 1 ] && _brew_new_section "Formulae" homebrew-core formula --formula
   [ "$WANT_CASK" = 1 ]    && _brew_new_section "Casks"    homebrew-cask cask    --cask
   return "$FAILED"
@@ -433,6 +389,8 @@ _brew_new_run() {
 brew_new() {
   emulate -L zsh
   setopt pipe_fail
+  # the online engine refreshes both mirrors in the background; no job notices
+  setopt no_monitor no_notify
 
   # `brew desc` can trigger an auto-update, and cmd/update.sh rotates
   # *_names.txt -> *_names.before.txt, which would destroy the very window the

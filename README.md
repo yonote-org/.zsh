@@ -22,9 +22,9 @@ zsh-addons-setup
 
 It appends `[[ -f "$(brew --prefix)/share/zsh-addons/configs.zsh" ]] && source "..."  # zsh-addons`
 with the prefix spelled out — add that line by hand instead if you prefer. The formula declares
-the two tools the addons rely on as dependencies — `expect` (for `uless.zsh`) and `jq` (for
-`brew-autoupdate` and `brew-new`'s online fallback) — so `brew install` brings them in and
-`brew uninstall` removes them again unless you had installed them yourself.
+the tools the addons rely on as dependencies — `git`, `expect` (for `uless.zsh`) and `jq` (for
+`brew-autoupdate`) — so `brew install` brings them in and `brew uninstall` removes them again
+unless you had installed them yourself.
 
 To uninstall, take the line out first (Homebrew formulae cannot edit `~/.zshrc` themselves, so
 `brew uninstall` can't do it for you), then remove the formula:
@@ -102,7 +102,7 @@ The main configuration orchestrator that:
 Defines `_zsh_addons_require <command> <formula>`: returns 0 if the command is available, otherwise
 installs the Homebrew formula that provides it first. Modules call it at the point where a function
 actually needs the tool — nothing is checked or installed when the shell starts — and fall back or
-report if brew is missing or the install fails. Used for `unbuffer` (`expect`) and `jq`.
+report if brew is missing or the install fails. Used for `git`, `unbuffer` (`expect`) and `jq`.
 
 ### zsh-addons-setup
 
@@ -248,8 +248,10 @@ own report (`==> New Formulae` / `==> New Casks`), with a one-line description p
   `brew update` does internally. Covers only the gap between your last two updates, and has no
   per-item dates because none exist locally.
 - **online** — any date window. Homebrew no longer clones the core/cask taps locally (API mode), so
-  there is no local history to read; this queries the tap history on GitHub, where every addition
-  carries a `name 1.2.3 (new formula)` / `(new cask)` line in its commit message.
+  `bn` keeps its own commit-only shallow mirror of each tap under `~/.cache/brew-new`
+  (`git clone --filter=tree:0 --shallow-since`: no trees or blobs, a few MB per month of window,
+  refreshed on every run) and reads the additions from its history, where every one carries a
+  `name 1.2.3 (new formula)` / `(new cask)` line.
 
 Any date argument selects the online engine; with no arguments you get the local report.
 
@@ -280,11 +282,13 @@ bn 30 -f -d                     # ...with descriptions
 
 **Notes:**
 
-- The local default makes **zero** network calls. The online engine costs one GitHub search request
-  per 100 matching commits per tap — 2 requests for a week, 4 for a month, 9 for 90 days; `-f` or
-  `-c` halves that. The authenticated limit is 30 searches/minute (10 unauthenticated).
-- A failed or throttled query is reported as `(unavailable)` with a non-zero return rather than as
-  an empty result, so a failure is never mistaken for "nothing new".
+- The local default makes **zero** network calls. The online engine does one `git fetch` per tap
+  (both in parallel, about a second each) and no GitHub API calls, so there are no rate limits or
+  result caps; `-f` / `-c` skips the other tap. The mirror is shallow to the requested window plus
+  two days, deepened or shortened to match each query. `BREW_NEW_CACHE` overrides its location;
+  deleting it is always safe.
+- A failed fetch is reported as `(unavailable)` with a non-zero return rather than as an empty
+  result, so a failure is never mistaken for "nothing new".
 - Dates are the UTC date on which the addition landed on the tap's default branch, so an item keeps
   the same date regardless of which window you query.
 - `HOMEBREW_NO_AUTO_UPDATE` is set for the duration of the call only: `brew desc` (which supplies the
@@ -383,11 +387,11 @@ are replaced on upgrade). The modular structure allows you to:
 - **Homebrew** - For `brew-enhancements.zsh` and `uless.zsh`
 - **expect** - Provides `unbuffer` for `uless.zsh`; a dependency of the Homebrew formula, otherwise
   installed the first time a command is piped to `less`
-- **Git** - For `git.zsh` functionality
-- **jq** - For `brew-autoupdate` (`bauc`, `baua`, `bauu`) and `brew-new`'s unauthenticated online
-  fallback (`brew-new`'s default local engine needs nothing). Ships with macOS 15+; a dependency of
+- **git** - For `git.zsh` and `brew-new`'s online engine. macOS only ships a stub: the real git
+  comes with the Xcode Command Line Tools (which Homebrew requires anyway); a dependency of the
+  Homebrew formula, otherwise installed on first use by `brew-new`
+- **jq** - For `brew-autoupdate` (`bauc`, `baua`, `bauu`). Ships with macOS 15+; a dependency of
   the Homebrew formula, otherwise installed on first use
-- **gh** - Optional, used by `brew-new` when authenticated; falls back to `curl`
 
 ## License
 
